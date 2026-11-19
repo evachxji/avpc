@@ -12,6 +12,20 @@ public sealed class MediaLibraryItem
     public required MediaAsset Asset { get; init; }
     public BitmapImage? Thumbnail { get; init; }
     public required string Details { get; init; }
+    public string TagBackground => Asset.Kind switch
+    {
+        MediaKind.Video => "#FF274D78",
+        MediaKind.Audio => "#FF493563",
+        MediaKind.Image => "#FF24513F",
+        _ => "#FF343942"
+    };
+    public string TagForeground => Asset.Kind switch
+    {
+        MediaKind.Video => "#FFBBD7FF",
+        MediaKind.Audio => "#FFE6CCFF",
+        MediaKind.Image => "#FFBAE8CE",
+        _ => "#FFD6D9E0"
+    };
     public string KindName => Asset.Kind switch
     {
         MediaKind.Video => "视频",
@@ -46,7 +60,7 @@ public static class MediaImportService
         }
         catch
         {
-            return new MediaLibraryItem { Asset = asset, Details = "文件不可用" };
+            return new MediaLibraryItem { Asset = asset, Details = "文件不可用", Thumbnail = GetDefaultThumbnail(asset.Kind) };
         }
     }
     private static async Task<MediaLibraryItem> CreateItemAsync(StorageFile file)
@@ -75,7 +89,7 @@ public static class MediaImportService
             details = $"{properties.Width}×{properties.Height}";
         }
 
-        BitmapImage? thumbnail = null;
+        BitmapImage? thumbnail = GetDefaultThumbnail(kind);
         if (kind != MediaKind.Audio)
         {
             using var stream = await file.GetThumbnailAsync(
@@ -94,5 +108,9 @@ public static class MediaImportService
         };
     }
 
+    private static BitmapImage? GetDefaultThumbnail(MediaKind kind) => kind == MediaKind.Audio
+        ? new BitmapImage(new Uri(Path.Combine(AppContext.BaseDirectory, "Assets", "audio.png")))
+        : null;
     private static string FormatDuration(TimeSpan duration) => $"{(int)duration.TotalMinutes:00}:{duration.Seconds:00}";
 }
+
