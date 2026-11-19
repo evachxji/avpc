@@ -10,7 +10,7 @@ public partial class App : Application
         InitializeComponent();
     }
 
-    protected override void OnLaunched(LaunchActivatedEventArgs args)
+    protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
         try
         {
@@ -20,6 +20,7 @@ public partial class App : Application
             DisplayService.PlaceConsole(window, consoleDisplay);
             window.Activate();
             window.InitializeDisplays();
+            await window.InitializeWorkspaceAsync();
         }
         catch (Exception ex)
         {

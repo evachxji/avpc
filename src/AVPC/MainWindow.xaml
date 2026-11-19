@@ -23,9 +23,7 @@
 
         <Grid x:Name="AppTitleBar" Padding="16,0">
             <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                <Border Width="25" Height="25" CornerRadius="7" Background="#FF6F9FF4">
-                    <FontIcon Glyph="&#xE768;" FontSize="11" Foreground="#FF101723" />
-                </Border>
+                <Image Width="25" Height="25" Source="/Assets/AVPC.png" />
                 <TextBlock Text="AVPC 播放控台" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" />
             </StackPanel>
         </Grid>
@@ -224,8 +222,3 @@
         </Border>
     </Grid>
 </Window>
-
-
-
-
-

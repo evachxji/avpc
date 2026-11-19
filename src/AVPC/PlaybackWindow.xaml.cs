@@ -12,6 +12,7 @@ public partial class PlaybackWindow : Window
     {
         InitializeComponent();
         AppWindow.Title = "AVPC 正式输出";
+        AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "AVPC.ico"));
         Clear();
     }
 

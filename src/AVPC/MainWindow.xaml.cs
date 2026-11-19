@@ -28,6 +28,8 @@ public partial class MainWindow : Window
     private ImageSlideshow? _previewSlideshow;
     private PlaybackScheme? _previewScheme;
     private bool _previewFadeStarted;
+    private readonly DispatcherTimer _saveTimer = new();
+    private bool _loadingWorkspace;
 
     public MainWindow()
     {
@@ -36,6 +38,7 @@ public partial class MainWindow : Window
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);
         AppWindow.Title = "AVPC 播放控台";
+        AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "AVPC.ico"));
         MediaList.ItemsSource = _mediaItems;
         SchemeList.ItemsSource = _schemes;
         VideoSelector.DisplayMemberPath = "Asset.DisplayName";
@@ -43,6 +46,8 @@ public partial class MainWindow : Window
         OutputDisplaySelector.DisplayMemberPath = "Name";
         AppWindow.Closing += OnClosing;
         PreviewVolume.ValueChanged += OnPreviewVolumeChanged;
+        _saveTimer.Interval = TimeSpan.FromMilliseconds(400);
+        _saveTimer.Tick += (sender, args) => SaveWorkspace();
     }
 
     public DisplayArea SelectedOutputDisplay => (OutputDisplaySelector.SelectedItem as DisplayOption)?.Area
@@ -75,6 +80,7 @@ public partial class MainWindow : Window
             RefreshMediaView();
             RefreshEditorSources();
             StatusText.Text = $"素材库 · {_mediaItems.Count} 个素材";
+            ScheduleSave();
         }
         catch (Exception ex)
         {
@@ -159,8 +165,7 @@ public partial class MainWindow : Window
     {
         if (!EnsureEditable()) return;
         var scheme = new PlaybackScheme { Name = $"方案 {_schemes.Count + 1:00}" };
-        var card = new SchemeCardViewModel(scheme);
-        card.Refresh(_mediaItems);
+        var card = CreateSchemeCard(scheme);
         _schemes.Add(card);
         RefreshQueue();
         SchemeList.SelectedItem = card;
@@ -238,6 +243,7 @@ public partial class MainWindow : Window
         {
             SelectedScheme.Name = SchemeNameBox.Text;
             SelectedCard?.Refresh(_mediaItems);
+            ScheduleSave();
         }
     }
 
@@ -273,6 +279,7 @@ public partial class MainWindow : Window
     {
         if (!_loadingEditor && SelectedScheme is not null && !double.IsNaN(sender.Value))
             SelectedScheme.ImageDurationSeconds = Math.Max(1, (int)sender.Value);
+        ScheduleSave();
     }
 
     private void AudioChanged(object sender, SelectionChangedEventArgs e)
@@ -287,17 +294,20 @@ public partial class MainWindow : Window
     private void VideoLoopChanged(object sender, RoutedEventArgs e)
     {
         if (!_loadingEditor && SelectedScheme is not null) SelectedScheme.IsVideoLooping = VideoLoopCheck.IsChecked == true;
+        ScheduleSave();
     }
 
     private void AudioLoopChanged(object sender, RoutedEventArgs e)
     {
         if (!_loadingEditor && SelectedScheme is not null) SelectedScheme.IsAudioLooping = AudioLoopCheck.IsChecked == true;
+        ScheduleSave();
     }
 
     private void EndBehaviorChanged(object sender, SelectionChangedEventArgs e)
     {
         if (!_loadingEditor && SelectedScheme is not null)
             SelectedScheme.EndBehavior = EndBehaviorSelector.SelectedIndex == 1 ? VideoEndBehavior.FadeToBlack : VideoEndBehavior.HoldLastFrame;
+        ScheduleSave();
     }
 
     private void SchemesReordered(ListViewBase sender, DragItemsCompletedEventArgs args)
@@ -309,6 +319,7 @@ public partial class MainWindow : Window
     private void RefreshQueue()
     {
         if (!_queue.IsPlaying) _queue = new PlaybackQueue(_schemes.Select(card => card.Scheme));
+        ScheduleSave();
         SelectedCard?.Refresh(_mediaItems);
     }
 
@@ -400,6 +411,7 @@ public partial class MainWindow : Window
     {
         _queue.Stop();
         _coordinator?.Stop();
+        SaveWorkspace();
         PlayNextButton.Content = "▶ 开始正式播放";
         ModeText.Text = "●  预览模式";
         StatusText.Text = "正式输出已停止";
@@ -557,6 +569,65 @@ public partial class MainWindow : Window
         player.Dispose();
         player = null;
     }
+    public async Task InitializeWorkspaceAsync()
+    {
+        _loadingWorkspace = true;
+        try
+        {
+            var workspace = WorkspaceStore.Load();
+            foreach (var asset in workspace.Media)
+                _mediaItems.Add(await MediaImportService.LoadItemAsync(asset));
+            foreach (var scheme in workspace.Schemes)
+                _schemes.Add(CreateSchemeCard(scheme));
+            RefreshMediaView();
+            RefreshEditorSources();
+            RefreshQueue();
+            UpdateSchemeCount();
+            SchemeList.SelectedItem = _schemes.FirstOrDefault();
+            StatusText.Text = $"已恢复 {_mediaItems.Count} 个素材、{_schemes.Count} 套方案";
+        }
+        catch (Exception ex)
+        {
+            ShowError("恢复上次工作区失败", ex);
+        }
+        finally
+        {
+            _loadingWorkspace = false;
+        }
+    }
+
+    private SchemeCardViewModel CreateSchemeCard(PlaybackScheme scheme)
+    {
+        var card = new SchemeCardViewModel(scheme);
+        card.Refresh(_mediaItems);
+        card.Changed += ScheduleSave;
+        return card;
+    }
+
+    private void ScheduleSave()
+    {
+        if (_loadingWorkspace) return;
+        _saveTimer.Stop();
+        _saveTimer.Start();
+    }
+
+    private void SaveWorkspace()
+    {
+        if (_loadingWorkspace) return;
+        _saveTimer.Stop();
+        try
+        {
+            WorkspaceStore.Save(new WorkspaceState
+            {
+                Media = _mediaItems.Select(item => item.Asset).ToList(),
+                Schemes = _schemes.Select(card => card.Scheme).ToList()
+            });
+        }
+        catch (Exception ex)
+        {
+            ShowError("保存工作区失败", ex);
+        }
+    }
     private void ShowError(string title, Exception ex)
     {
         System.Diagnostics.Debug.WriteLine(ex);
@@ -575,11 +646,7 @@ public partial class MainWindow : Window
     {
         StopPreview();
         _coordinator?.Stop();
+        SaveWorkspace();
         Application.Current.Exit();
     }
 }
-
-
-
-
-

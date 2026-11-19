@@ -28,16 +28,17 @@ public sealed class SchemeCardViewModel : INotifyPropertyChanged
     public bool IsVideoLooping
     {
         get => Scheme.IsVideoLooping;
-        set { Scheme.IsVideoLooping = value; OnPropertyChanged(); }
+        set { Scheme.IsVideoLooping = value; OnPropertyChanged(); Changed?.Invoke(); }
     }
 
     public bool IsAudioLooping
     {
         get => Scheme.IsAudioLooping;
-        set { Scheme.IsAudioLooping = value; OnPropertyChanged(); }
+        set { Scheme.IsAudioLooping = value; OnPropertyChanged(); Changed?.Invoke(); }
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
+    public event Action? Changed;
 
     public void Refresh(IEnumerable<MediaLibraryItem> media)
     {

@@ -38,6 +38,17 @@ public static class MediaImportService
         return items;
     }
 
+    public static async Task<MediaLibraryItem> LoadItemAsync(MediaAsset asset)
+    {
+        try
+        {
+            return await CreateItemAsync(await StorageFile.GetFileFromPathAsync(asset.Path));
+        }
+        catch
+        {
+            return new MediaLibraryItem { Asset = asset, Details = "文件不可用" };
+        }
+    }
     private static async Task<MediaLibraryItem> CreateItemAsync(StorageFile file)
     {
         var extension = file.FileType.ToLowerInvariant();
