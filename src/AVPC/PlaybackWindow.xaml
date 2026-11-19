@@ -1,0 +1,10 @@
+<Window
+    x:Class="AVPC.PlaybackWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid Background="Black">
+        <MediaPlayerElement x:Name="VideoView" Stretch="Uniform" AreTransportControlsEnabled="False" />
+        <Image x:Name="ImageView" Stretch="Uniform" />
+        <Grid x:Name="FadeOverlay" Background="Black" Opacity="0" IsHitTestVisible="False" />
+    </Grid>
+</Window>
