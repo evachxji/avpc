@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
+using Windows.ApplicationModel.DataTransfer;
 using Windows.Media.Core;
 using Windows.Media.Playback;
 
@@ -104,6 +105,49 @@ public partial class MainWindow : Window
         }
     }
 
+    private void MediaDragStarting(object sender, DragItemsStartingEventArgs e)
+    {
+        if (!EnsureEditable())
+        {
+            e.Cancel = true;
+            return;
+        }
+        if (e.Items.OfType<MediaLibraryItem>().FirstOrDefault() is not MediaLibraryItem item)
+        {
+            e.Cancel = true;
+            return;
+        }
+        StatusText.Text = $"正在拖动 {item.Asset.DisplayName}，请放到方案卡片上";
+        e.Data.SetText(item.Asset.Path);
+        e.Data.RequestedOperation = DataPackageOperation.Copy;
+    }
+
+    private void SchemeDragOver(object sender, DragEventArgs e)
+    {
+        if (!_queue.IsPlaying && e.DataView.Contains(StandardDataFormats.Text))
+        {
+            e.AcceptedOperation = DataPackageOperation.Copy;
+            e.DragUIOverride.Caption = "放入方案";
+            StatusText.Text = "松开鼠标即可放入当前方案";
+        }
+        else
+            e.AcceptedOperation = DataPackageOperation.None;
+        e.Handled = true;
+    }
+
+    private async void SchemeDrop(object sender, DragEventArgs e)
+    {
+        if (!EnsureEditable()) return;
+        var path = await e.DataView.GetTextAsync();
+        var media = _mediaItems.FirstOrDefault(item => string.Equals(item.Asset.Path, path, StringComparison.OrdinalIgnoreCase));
+        if (media is null || (sender as FrameworkElement)?.DataContext is not PlaybackScheme scheme) return;
+        scheme.AssignMedia(media.Asset);
+        RefreshQueue();
+        SchemeList.SelectedItem = scheme;
+        LoadEditor();
+        StatusText.Text = $"已将 {media.Asset.DisplayName} 放入 {scheme.Name}";
+        e.Handled = true;
+    }
     private void AddSchemeClicked(object sender, RoutedEventArgs e)
     {
         if (!EnsureEditable()) return;
@@ -494,3 +538,5 @@ public partial class MainWindow : Window
         Application.Current.Exit();
     }
 }
+
+

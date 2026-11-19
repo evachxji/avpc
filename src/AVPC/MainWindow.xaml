@@ -65,7 +65,7 @@
                         <Button Content="＋ 导入素材" HorizontalAlignment="Right" Click="ImportClicked" />
                     </Grid>
                     <AutoSuggestBox Grid.Row="1" x:Name="SearchBox" PlaceholderText="搜索素材" QueryIcon="Find" TextChanged="SearchChanged" />
-                    <ListView x:Name="MediaList" Grid.Row="2" SelectionMode="None">
+                    <ListView x:Name="MediaList" Grid.Row="2" SelectionMode="Single" CanDragItems="True" DragItemsStarting="MediaDragStarting">
                         <ListView.ItemTemplate>
                             <DataTemplate>
                                 <Grid ColumnSpacing="10" MinHeight="54">
@@ -74,16 +74,17 @@
                                         <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
                                     <Border Width="62" Height="42" CornerRadius="5" Background="#FF292D36" VerticalAlignment="Center">
-                                        <Grid>
-                                            <Image Source="{Binding Thumbnail}" Stretch="UniformToFill" />
-                                            <TextBlock Text="{Binding KindName}" FontSize="10" Foreground="#FFBCC7D9" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                        </Grid>
+                                        <Image Source="{Binding Thumbnail}" Stretch="UniformToFill" />
                                     </Border>
                                     <StackPanel Grid.Column="1" VerticalAlignment="Center">
                                         <TextBlock Text="{Binding Asset.DisplayName}" FontSize="12" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{Binding Asset.Path}" />
-                                        <TextBlock Text="{Binding Details}" FontSize="10" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Margin="0,4,0,0" />
-                                    </StackPanel>
-                                </Grid>
+                                        <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,5,0,0">
+                                            <Border Background="#226F9FF4" CornerRadius="4" Padding="6,2">
+                                                <TextBlock Text="{Binding KindName}" FontSize="9" Foreground="#FFACCAFF" />
+                                            </Border>
+                                            <TextBlock Text="{Binding Details}" FontSize="10" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" />
+                                        </StackPanel>
+                                    </StackPanel>                                </Grid>
                             </DataTemplate>
                         </ListView.ItemTemplate>
                     </ListView>
@@ -168,7 +169,7 @@
                     <ListView x:Name="SchemeList" Grid.Row="1" SelectionMode="Single" CanReorderItems="True" CanDragItems="True" AllowDrop="True" SelectionChanged="SchemeSelectionChanged" DragItemsCompleted="SchemesReordered">
                         <ListView.ItemTemplate>
                             <DataTemplate>
-                                <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="12" Background="#08FFFFFF" Margin="0,0,0,8">
+                                <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="12" Background="#08FFFFFF" Margin="0,0,0,8" AllowDrop="True" DragOver="SchemeDragOver" Drop="SchemeDrop">
                                     <StackPanel Spacing="8">
                                         <Grid>
                                             <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="13" />
@@ -217,4 +218,6 @@
         </Border>
     </Grid>
 </Window>
+
+
 

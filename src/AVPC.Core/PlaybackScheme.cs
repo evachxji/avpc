@@ -17,6 +17,24 @@ public sealed class PlaybackScheme
     public int ImageDurationSeconds { get; set; } = 5;
     public VideoEndBehavior EndBehavior { get; set; }
 
+    public void AssignMedia(MediaAsset asset)
+    {
+        switch (asset.Kind)
+        {
+            case MediaKind.Video:
+                Video = asset;
+                Images.Clear();
+                break;
+            case MediaKind.Image:
+                Video = null;
+                if (!Images.Any(image => string.Equals(image.Path, asset.Path, StringComparison.OrdinalIgnoreCase)))
+                    Images.Add(asset);
+                break;
+            case MediaKind.Audio:
+                Audio = asset;
+                break;
+        }
+    }
     public string? Validate()
     {
         if (Video is null && Images.Count == 0)
@@ -28,3 +46,4 @@ public sealed class PlaybackScheme
         return null;
     }
 }
+
