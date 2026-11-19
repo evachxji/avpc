@@ -11,7 +11,7 @@ public sealed class PlaybackScheme
     public string Name { get; set; } = string.Empty;
     public MediaAsset? Video { get; set; }
     public List<MediaAsset> Images { get; } = [];
-    public MediaAsset? Audio { get; set; }
+    public List<MediaAsset> Audios { get; } = [];
     public bool IsVideoLooping { get; set; }
     public bool IsAudioLooping { get; set; }
     public int ImageDurationSeconds { get; set; } = 5;
@@ -31,7 +31,8 @@ public sealed class PlaybackScheme
                     Images.Add(asset);
                 break;
             case MediaKind.Audio:
-                Audio = asset;
+                if (!Audios.Any(audio => string.Equals(audio.Path, asset.Path, StringComparison.OrdinalIgnoreCase)))
+                    Audios.Add(asset);
                 break;
         }
     }
@@ -46,4 +47,5 @@ public sealed class PlaybackScheme
         return null;
     }
 }
+
 

@@ -10,6 +10,7 @@ public sealed class PlaybackCoordinator
     private readonly PlaybackWindow _output;
     private MediaPlayer? _videoPlayer;
     private MediaPlayer? _audioPlayer;
+    private AudioPlaylist? _audioPlaylist;
     private DispatcherTimer? _imageTimer;
     private DispatcherTimer? _fadeTimer;
     private ImageSlideshow? _slideshow;
@@ -34,10 +35,10 @@ public sealed class PlaybackCoordinator
         else
             PlayImages(scheme);
 
-        if (scheme.Audio is not null)
+        if (scheme.Audios.Count > 0)
         {
-            _audioPlayer = CreatePlayer(scheme.Audio, scheme.IsAudioLooping, false);
-            _audioPlayer.Play();
+            _audioPlaylist = new AudioPlaylist(scheme);
+            PlayAudio();
         }
     }
 
@@ -52,12 +53,29 @@ public sealed class PlaybackCoordinator
         _fadeStarted = false;
         DisposePlayer(ref _videoPlayer);
         DisposePlayer(ref _audioPlayer);
+        _audioPlaylist = null;
         _output.Clear();
     }
 
+    private void PlayAudio()
+    {
+        if (_audioPlaylist is null) return;
+        DisposePlayer(ref _audioPlayer);
+        _audioPlayer = CreatePlayer(_audioPlaylist.Current, false, false);
+        _audioPlayer.MediaEnded += OnAudioEnded;
+        _audioPlayer.Play();
+    }
+
+    private void OnAudioEnded(MediaPlayer sender, object args)
+    {
+        if (_audioPlaylist?.MoveNext() is not null)
+            PlayAudio();
+        else
+            DisposePlayer(ref _audioPlayer);
+    }
     private void PlayVideo(PlaybackScheme scheme)
     {
-        _videoPlayer = CreatePlayer(scheme.Video!, scheme.IsVideoLooping, scheme.Audio is not null);
+        _videoPlayer = CreatePlayer(scheme.Video!, scheme.IsVideoLooping, scheme.Audios.Count > 0);
         _videoPlayer.MediaEnded += OnVideoEnded;
         _output.ShowVideo(_videoPlayer);
         if (!scheme.IsVideoLooping && scheme.EndBehavior == VideoEndBehavior.FadeToBlack)

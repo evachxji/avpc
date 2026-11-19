@@ -138,7 +138,12 @@
                                     </ListView.ItemTemplate>
                                 </ListView></StackPanel>
                                 <NumberBox x:Name="ImageDurationBox" Header="每张图片停留（秒）" Minimum="1" Maximum="3600" SmallChange="1" SpinButtonPlacementMode="Inline" ValueChanged="ImageDurationChanged" />
-                                <ComboBox x:Name="AudioSelector" Header="独立音频（不选则使用视频原声）" SelectionChanged="AudioChanged" />
+                                                                <StackPanel>
+                                    <TextBlock Text="独立音频（可多选，按选择顺序播放；不选则使用视频原声）" Margin="0,0,0,6" />
+                                    <ListView x:Name="AudioSelector" SelectionMode="Multiple" SelectionChanged="AudioChanged" Height="92">
+                                        <ListView.ItemTemplate><DataTemplate><TextBlock Text="{Binding Asset.DisplayName}" ToolTipService.ToolTip="{Binding Asset.Path}" /></DataTemplate></ListView.ItemTemplate>
+                                    </ListView>
+                                </StackPanel>
                                 <Grid ColumnSpacing="12">
                                     <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                                     <CheckBox x:Name="VideoLoopCheck" Content="视频循环" Checked="VideoLoopChanged" Unchecked="VideoLoopChanged" />
@@ -166,31 +171,32 @@
                         <TextBlock x:Name="SchemeCountText" Text="播放方案 · 0 套" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" />
                         <TextBlock Text="拖拽 ⋮⋮ 排序" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Right" />
                     </Grid>
-                    <ListView x:Name="SchemeList" Grid.Row="1" SelectionMode="Single" CanReorderItems="True" CanDragItems="True" AllowDrop="True" SelectionChanged="SchemeSelectionChanged" DragItemsCompleted="SchemesReordered">
+                    <ListView x:Name="SchemeList" Grid.Row="1" SelectionMode="Single" CanReorderItems="True" CanDragItems="True" AllowDrop="True" SelectionChanged="SchemeSelectionChanged" DragItemsCompleted="SchemesReordered" DragOver="SchemeDragOver" Drop="SchemeDrop">
                         <ListView.ItemTemplate>
                             <DataTemplate>
                                 <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="12" Background="#08FFFFFF" Margin="0,0,0,8" AllowDrop="True" DragOver="SchemeDragOver" Drop="SchemeDrop">
-                                    <StackPanel Spacing="8">
-                                        <Grid>
-                                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="13" />
-                                            <TextBlock Text="⋮⋮" HorizontalAlignment="Right" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
-                                        </Grid>
-                                        <StackPanel Background="#66000000" Padding="9" CornerRadius="5">
-                                            <TextBlock Text="画面来源" FontSize="9" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
-                                            <TextBlock Text="{Binding Video.DisplayName}" FontSize="11" TextTrimming="CharacterEllipsis" Margin="0,3,0,0" />
-                                            <TextBlock Text="{Binding Images.Count}" FontSize="11" Margin="0,3,0,0" />
+                                    <Grid ColumnSpacing="12">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="88" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                        <Border Width="88" Height="88" CornerRadius="7" Background="#FF101318" VerticalAlignment="Top">
+                                            <Image Source="{Binding Thumbnail}" Stretch="UniformToFill" />
+                                        </Border>
+                                        <StackPanel Grid.Column="1" Spacing="5">
+                                            <Grid><TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="13" /><TextBlock Text="⋮⋮" HorizontalAlignment="Right" Foreground="{ThemeResource TextFillColorTertiaryBrush}" /></Grid>
+                                            <TextBlock Text="{Binding VisualName}" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" />
+                                            <Border Background="#66000000" CornerRadius="5" Padding="8,4" Margin="0,2,0,0">
+                                                <ScrollViewer MaxHeight="54" VerticalScrollBarVisibility="Auto">
+                                                    <ItemsControl ItemsSource="{Binding AudioRows}">
+                                                        <ItemsControl.ItemTemplate><DataTemplate><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="22" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><TextBlock Text="{Binding Prefix}" Foreground="#FF71809A" FontSize="10" /><TextBlock Grid.Column="1" Text="{Binding Name}" FontSize="10" TextTrimming="CharacterEllipsis" /></Grid></DataTemplate></ItemsControl.ItemTemplate>
+                                                    </ItemsControl>
+                                                </ScrollViewer>
+                                            </Border>
+                                            <StackPanel Orientation="Horizontal" Spacing="12">
+                                                <CheckBox Content="视频循环" IsChecked="{Binding IsVideoLooping, Mode=TwoWay}" />
+                                                <CheckBox Content="音频循环" IsChecked="{Binding IsAudioLooping, Mode=TwoWay}" />
+                                            </StackPanel>
                                         </StackPanel>
-                                        <StackPanel Background="#66000000" Padding="9" CornerRadius="5">
-                                            <TextBlock Text="独立音频" FontSize="9" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
-                                            <TextBlock Text="{Binding Audio.DisplayName}" FontSize="11" TextTrimming="CharacterEllipsis" Margin="0,3,0,0" />
-                                        </StackPanel>
-                                        <StackPanel Orientation="Horizontal" Spacing="16">
-                                            <CheckBox Content="视频循环" IsChecked="{Binding IsVideoLooping, Mode=TwoWay}" />
-                                            <CheckBox Content="音频循环" IsChecked="{Binding IsAudioLooping, Mode=TwoWay}" />
-                                        </StackPanel>
-                                    </StackPanel>
-                                </Border>
-                            </DataTemplate>
+                                    </Grid>
+                                </Border>                            </DataTemplate>
                         </ListView.ItemTemplate>
                     </ListView>
                     <Button Grid.Row="2" Content="＋ 新建播放方案" HorizontalAlignment="Stretch" Click="AddSchemeClicked" />
@@ -218,6 +224,8 @@
         </Border>
     </Grid>
 </Window>
+
+
 
 
 

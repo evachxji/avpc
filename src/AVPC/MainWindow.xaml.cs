@@ -15,7 +15,7 @@ namespace AVPC;
 public partial class MainWindow : Window
 {
     private readonly ObservableCollection<MediaLibraryItem> _mediaItems = [];
-    private readonly ObservableCollection<PlaybackScheme> _schemes = [];
+    private readonly ObservableCollection<SchemeCardViewModel> _schemes = [];
     private PlaybackQueue _queue = new([]);
     private List<DisplayOption> _displays = [];
     private bool _loadingEditor;
@@ -23,6 +23,7 @@ public partial class MainWindow : Window
     private PlaybackCoordinator? _coordinator;
     private MediaPlayer? _previewVideo;
     private MediaPlayer? _previewAudio;
+    private AudioPlaylist? _previewAudioPlaylist;
     private DispatcherTimer? _previewTimer;
     private ImageSlideshow? _previewSlideshow;
     private PlaybackScheme? _previewScheme;
@@ -38,7 +39,6 @@ public partial class MainWindow : Window
         MediaList.ItemsSource = _mediaItems;
         SchemeList.ItemsSource = _schemes;
         VideoSelector.DisplayMemberPath = "Asset.DisplayName";
-        AudioSelector.DisplayMemberPath = "Asset.DisplayName";
         ConsoleDisplaySelector.DisplayMemberPath = "Name";
         OutputDisplaySelector.DisplayMemberPath = "Name";
         AppWindow.Closing += OnClosing;
@@ -58,7 +58,8 @@ public partial class MainWindow : Window
         RefreshEditorSources();
     }
 
-    private PlaybackScheme? SelectedScheme => SchemeList.SelectedItem as PlaybackScheme;
+    private SchemeCardViewModel? SelectedCard => SchemeList.SelectedItem as SchemeCardViewModel;
+    private PlaybackScheme? SelectedScheme => SelectedCard?.Scheme;
 
     private async void ImportClicked(object sender, RoutedEventArgs e)
     {
@@ -94,14 +95,15 @@ public partial class MainWindow : Window
     private void RefreshEditorSources()
     {
         var video = VideoSelector.SelectedItem;
-        var audio = AudioSelector.SelectedItem;
+        var audioPaths = AudioSelector.SelectedItems.OfType<MediaLibraryItem>().Select(item => item.Asset.Path).ToList();
         VideoSelector.ItemsSource = _mediaItems.Where(item => item.Asset.Kind == MediaKind.Video).ToList();
         AudioSelector.ItemsSource = _mediaItems.Where(item => item.Asset.Kind == MediaKind.Audio).ToList();
         ImageSelector.ItemsSource = _mediaItems.Where(item => item.Asset.Kind == MediaKind.Image).ToList();
         if (!_loadingEditor)
         {
             VideoSelector.SelectedItem = video;
-            AudioSelector.SelectedItem = audio;
+            foreach (var item in AudioSelector.Items.OfType<MediaLibraryItem>().Where(item => audioPaths.Contains(item.Asset.Path)))
+                AudioSelector.SelectedItems.Add(item);
         }
     }
 
@@ -124,26 +126,31 @@ public partial class MainWindow : Window
 
     private void SchemeDragOver(object sender, DragEventArgs e)
     {
-        if (!_queue.IsPlaying && e.DataView.Contains(StandardDataFormats.Text))
+        if (!e.DataView.Contains(StandardDataFormats.Text)) return;
+        if (_queue.IsPlaying)
+            e.AcceptedOperation = DataPackageOperation.None;
+        else
         {
             e.AcceptedOperation = DataPackageOperation.Copy;
             e.DragUIOverride.Caption = "放入方案";
             StatusText.Text = "松开鼠标即可放入当前方案";
         }
-        else
-            e.AcceptedOperation = DataPackageOperation.None;
         e.Handled = true;
     }
-
     private async void SchemeDrop(object sender, DragEventArgs e)
     {
+        if (!e.DataView.Contains(StandardDataFormats.Text)) return;
         if (!EnsureEditable()) return;
         var path = await e.DataView.GetTextAsync();
         var media = _mediaItems.FirstOrDefault(item => string.Equals(item.Asset.Path, path, StringComparison.OrdinalIgnoreCase));
-        if (media is null || (sender as FrameworkElement)?.DataContext is not PlaybackScheme scheme) return;
+        var card = (sender as FrameworkElement)?.DataContext as SchemeCardViewModel
+            ?? (e.OriginalSource as FrameworkElement)?.DataContext as SchemeCardViewModel;
+        if (media is null || card is null) return;
+        var scheme = card.Scheme;
         scheme.AssignMedia(media.Asset);
         RefreshQueue();
-        SchemeList.SelectedItem = scheme;
+        card.Refresh(_mediaItems);
+        SchemeList.SelectedItem = card;
         LoadEditor();
         StatusText.Text = $"已将 {media.Asset.DisplayName} 放入 {scheme.Name}";
         e.Handled = true;
@@ -152,10 +159,12 @@ public partial class MainWindow : Window
     {
         if (!EnsureEditable()) return;
         var scheme = new PlaybackScheme { Name = $"方案 {_schemes.Count + 1:00}" };
-        _schemes.Add(scheme);
+        var card = new SchemeCardViewModel(scheme);
+        card.Refresh(_mediaItems);
+        _schemes.Add(card);
         RefreshQueue();
-        SchemeList.SelectedItem = scheme;
-        SchemeList.ScrollIntoView(scheme);
+        SchemeList.SelectedItem = card;
+        SchemeList.ScrollIntoView(card);
         UpdateSchemeCount();
     }
 
@@ -163,7 +172,7 @@ public partial class MainWindow : Window
     {
         if (!EnsureEditable() || SelectedScheme is not PlaybackScheme scheme) return;
         StopPreview();
-        _schemes.Remove(scheme);
+        _schemes.Remove(SelectedCard!);
         RefreshQueue();
         UpdateSchemeCount();
         SchemeList.SelectedItem = _schemes.FirstOrDefault();
@@ -191,7 +200,12 @@ public partial class MainWindow : Window
         SchemeNameBox.Text = scheme.Name;
         VisualKindSelector.SelectedIndex = scheme.Video is not null || scheme.Images.Count == 0 ? 0 : 1;
         VideoSelector.SelectedItem = FindMediaItem(VideoSelector, scheme.Video);
-        AudioSelector.SelectedItem = FindMediaItem(AudioSelector, scheme.Audio);
+        AudioSelector.SelectedItems.Clear();
+        foreach (var audio in scheme.Audios)
+        {
+            var item = FindMediaItem(AudioSelector, audio);
+            if (item is not null) AudioSelector.SelectedItems.Add(item);
+        }
         ImageSelector.SelectedItems.Clear();
         foreach (var image in scheme.Images)
         {
@@ -220,7 +234,11 @@ public partial class MainWindow : Window
 
     private void SchemeNameChanged(object sender, TextChangedEventArgs e)
     {
-        if (!_loadingEditor && SelectedScheme is not null) SelectedScheme.Name = SchemeNameBox.Text;
+        if (!_loadingEditor && SelectedScheme is not null)
+        {
+            SelectedScheme.Name = SchemeNameBox.Text;
+            SelectedCard?.Refresh(_mediaItems);
+        }
     }
 
     private void VisualKindChanged(object sender, SelectionChangedEventArgs e)
@@ -259,8 +277,11 @@ public partial class MainWindow : Window
 
     private void AudioChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (!_loadingEditor && SelectedScheme is not null)
-            SelectedScheme.Audio = (AudioSelector.SelectedItem as MediaLibraryItem)?.Asset;
+        if (_loadingEditor || SelectedScheme is not PlaybackScheme scheme) return;
+        scheme.Audios.Clear();
+        foreach (var item in AudioSelector.SelectedItems.OfType<MediaLibraryItem>())
+            scheme.Audios.Add(item.Asset);
+        SelectedCard?.Refresh(_mediaItems);
     }
 
     private void VideoLoopChanged(object sender, RoutedEventArgs e)
@@ -287,7 +308,8 @@ public partial class MainWindow : Window
 
     private void RefreshQueue()
     {
-        if (!_queue.IsPlaying) _queue = new PlaybackQueue(_schemes);
+        if (!_queue.IsPlaying) _queue = new PlaybackQueue(_schemes.Select(card => card.Scheme));
+        SelectedCard?.Refresh(_mediaItems);
     }
 
     private void UpdateSchemeCount() => SchemeCountText.Text = $"播放方案 · {_schemes.Count} 套";
@@ -339,6 +361,7 @@ public partial class MainWindow : Window
         _previewFadeStarted = false;
         DisposePreviewPlayer(ref _previewVideo);
         DisposePreviewPlayer(ref _previewAudio);
+        _previewAudioPlaylist = null;
         PreviewView.SetMediaPlayer(null);
         PreviewView.Visibility = Visibility.Visible;
         PreviewImage.Source = null;
@@ -389,8 +412,9 @@ public partial class MainWindow : Window
             ShowMessage("请先创建并配置至少一套方案。", InfoBarSeverity.Warning);
             return false;
         }
-        foreach (var scheme in _schemes)
+        foreach (var card in _schemes)
         {
+            var scheme = card.Scheme;
             if (scheme.Validate() is string error)
             {
                 ShowMessage($"{scheme.Name}：{error}", InfoBarSeverity.Warning);
@@ -398,7 +422,7 @@ public partial class MainWindow : Window
             }
             var paths = scheme.Images.Select(image => image.Path)
                 .Concat(scheme.Video is null ? [] : [scheme.Video.Path])
-                .Concat(scheme.Audio is null ? [] : [scheme.Audio.Path]);
+                .Concat(scheme.Audios.Select(audio => audio.Path));
             if (paths.Any(path => !File.Exists(path)))
             {
                 ShowMessage($"{scheme.Name}：有素材文件不存在或已被移动。", InfoBarSeverity.Error);
@@ -427,7 +451,7 @@ public partial class MainWindow : Window
         PreviewSchemeText.Text = scheme.Name;
         if (scheme.Video is not null)
         {
-            _previewVideo = CreatePreviewPlayer(scheme.Video, scheme.IsVideoLooping, scheme.Audio is not null);
+            _previewVideo = CreatePreviewPlayer(scheme.Video, scheme.IsVideoLooping, scheme.Audios.Count > 0);
             _previewVideo.MediaEnded += OnPreviewVideoEnded;
             PreviewView.SetMediaPlayer(_previewVideo);
             PreviewView.Visibility = Visibility.Visible;
@@ -450,10 +474,10 @@ public partial class MainWindow : Window
                 _previewTimer.Start();
             }
         }
-        if (scheme.Audio is not null)
+        if (scheme.Audios.Count > 0)
         {
-            _previewAudio = CreatePreviewPlayer(scheme.Audio, scheme.IsAudioLooping, false);
-            _previewAudio.Play();
+            _previewAudioPlaylist = new AudioPlaylist(scheme);
+            PlayPreviewAudio();
         }
         StatusText.Text = $"正在预览 {scheme.Name}";
     }
@@ -471,6 +495,22 @@ public partial class MainWindow : Window
         return player;
     }
 
+    private void PlayPreviewAudio()
+    {
+        if (_previewAudioPlaylist is null) return;
+        DisposePreviewPlayer(ref _previewAudio);
+        _previewAudio = CreatePreviewPlayer(_previewAudioPlaylist.Current, false, false);
+        _previewAudio.MediaEnded += OnPreviewAudioEnded;
+        _previewAudio.Play();
+    }
+
+    private void OnPreviewAudioEnded(MediaPlayer sender, object args)
+    {
+        if (_previewAudioPlaylist?.MoveNext() is not null)
+            PlayPreviewAudio();
+        else
+            DisposePreviewPlayer(ref _previewAudio);
+    }
     private void OnPreviewVideoTick(object? sender, object e)
     {
         if (_previewVideo is null || _previewScheme is null) return;
@@ -538,5 +578,8 @@ public partial class MainWindow : Window
         Application.Current.Exit();
     }
 }
+
+
+
 
 

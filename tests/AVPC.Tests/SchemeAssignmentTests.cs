@@ -34,7 +34,8 @@ public sealed class SchemeAssignmentTests
     {
         var scheme = new PlaybackScheme { Video = Video };
         scheme.AssignMedia(Audio);
-        Assert.Same(Audio, scheme.Audio);
+        Assert.Same(Audio, Assert.Single(scheme.Audios));
         Assert.Same(Video, scheme.Video);
     }
 }
+
