@@ -9,10 +9,10 @@ if errorlevel 1 (
     exit /b 1
 )
 
-dotnet run --project "src\AVPC\AVPC.csproj"
+powershell.exe -NoProfile -WindowStyle Hidden -Command "Start-Process -FilePath 'dotnet' -ArgumentList 'run','--project','src\AVPC\AVPC.csproj' -WorkingDirectory '%CD%' -WindowStyle Hidden"
 if errorlevel 1 (
-    echo.
-    echo [AVPC] Startup failed. See the errors above.
+    echo [AVPC] Startup failed.
     pause
     exit /b 1
 )
+exit /b 0
