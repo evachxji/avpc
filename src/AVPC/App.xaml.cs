@@ -17,5 +17,7 @@ public partial class App : Application
         var window = new MainWindow();
         DisplayService.PlaceConsole(window, consoleDisplay);
         window.Activate();
+        window.InitializeDisplays();
     }
 }
+

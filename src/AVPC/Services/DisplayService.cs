@@ -4,9 +4,15 @@ using Windows.Graphics;
 
 namespace AVPC.Services;
 
+public sealed record DisplayOption(DisplayArea Area, string Name);
+
 public static class DisplayService
 {
     public static List<DisplayArea> GetDisplays() => DisplayArea.FindAll().ToList();
+
+    public static List<DisplayOption> GetDisplayOptions() => GetDisplays()
+        .Select((area, index) => new DisplayOption(area, $"{(area.IsPrimary ? "主屏" : "副屏")} {index + 1} · {area.WorkArea.Width}×{area.WorkArea.Height}"))
+        .ToList();
 
     public static void PlaceConsole(Window window, DisplayArea display)
     {
