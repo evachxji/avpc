@@ -39,4 +39,3 @@ public static class DisplayService
         window.AppWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
     }
 }
-

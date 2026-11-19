@@ -437,14 +437,13 @@ public partial class MainWindow : Window
             PreviewProgress.Maximum = duration.TotalSeconds;
             PreviewProgress.Value = session.Position.TotalSeconds;
         }
-        if (_previewScheme.IsVideoLooping || _previewScheme.EndBehavior != VideoEndBehavior.FadeToBlack || _previewFadeStarted)
-            return;
-        var remaining = duration - session.Position;
-        if (remaining <= TimeSpan.FromSeconds(2))
+        if (_previewFadeStarted) return;
+        var fadeDuration = FadeTiming.GetFadeDuration(session.Position, duration, _previewScheme.IsVideoLooping, _previewScheme.EndBehavior);
+        if (fadeDuration is TimeSpan fade)
         {
             _previewFadeStarted = true;
             PreviewFadeOverlay.Opacity = 0;
-            PlaybackWindow.FadeToBlack(PreviewFadeOverlay, remaining > TimeSpan.Zero ? remaining : TimeSpan.FromMilliseconds(1));
+            PlaybackWindow.FadeToBlack(PreviewFadeOverlay, fade);
         }
     }
 
@@ -495,6 +494,3 @@ public partial class MainWindow : Window
         Application.Current.Exit();
     }
 }
-
-
-

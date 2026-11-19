@@ -67,4 +67,3 @@ public partial class PlaybackWindow : Window
         storyboard.Begin();
     }
 }
-

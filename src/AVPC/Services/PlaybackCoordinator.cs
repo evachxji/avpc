@@ -133,5 +133,3 @@ public sealed class PlaybackCoordinator
         player = null;
     }
 }
-
-
