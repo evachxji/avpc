@@ -12,12 +12,19 @@ public partial class App : Application
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
-        var displays = DisplayService.GetDisplays();
-        var consoleDisplay = displays.Count > 1 ? displays[1] : displays[0];
-        var window = new MainWindow();
-        DisplayService.PlaceConsole(window, consoleDisplay);
-        window.Activate();
-        window.InitializeDisplays();
+        try
+        {
+            var displays = DisplayService.GetDisplays();
+            var consoleDisplay = displays.Count > 1 ? displays[1] : displays[0];
+            var window = new MainWindow();
+            DisplayService.PlaceConsole(window, consoleDisplay);
+            window.Activate();
+            window.InitializeDisplays();
+        }
+        catch (Exception ex)
+        {
+            File.WriteAllText(Path.Combine(Path.GetTempPath(), "AVPC-startup.log"), ex.ToString());
+            throw;
+        }
     }
 }
-

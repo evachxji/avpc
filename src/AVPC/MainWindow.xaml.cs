@@ -5,6 +5,9 @@ using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
+using Windows.Media.Core;
+using Windows.Media.Playback;
 
 namespace AVPC;
 
@@ -15,6 +18,14 @@ public partial class MainWindow : Window
     private PlaybackQueue _queue = new([]);
     private List<DisplayOption> _displays = [];
     private bool _loadingEditor;
+    private PlaybackWindow? _outputWindow;
+    private PlaybackCoordinator? _coordinator;
+    private MediaPlayer? _previewVideo;
+    private MediaPlayer? _previewAudio;
+    private DispatcherTimer? _previewTimer;
+    private ImageSlideshow? _previewSlideshow;
+    private PlaybackScheme? _previewScheme;
+    private bool _previewFadeStarted;
 
     public MainWindow()
     {
@@ -30,6 +41,7 @@ public partial class MainWindow : Window
         ConsoleDisplaySelector.DisplayMemberPath = "Name";
         OutputDisplaySelector.DisplayMemberPath = "Name";
         AppWindow.Closing += OnClosing;
+        PreviewVolume.ValueChanged += OnPreviewVolumeChanged;
     }
 
     public DisplayArea SelectedOutputDisplay => (OutputDisplaySelector.SelectedItem as DisplayOption)?.Area
@@ -251,37 +263,217 @@ public partial class MainWindow : Window
 
     private void OutputDisplayChanged(object sender, SelectionChangedEventArgs e)
     {
+        if (_outputWindow is not null && OutputDisplaySelector.SelectedItem is DisplayOption display)
+            DisplayService.ShowFullScreen(_outputWindow, display.Area);
     }
 
     private void PreviewClicked(object sender, RoutedEventArgs e)
     {
-        if (SelectedScheme?.Validate() is string error)
+        if (_queue.IsPlaying)
+        {
+            ShowMessage("正式播放期间请使用主屏输出；请先停止输出再预览。", InfoBarSeverity.Warning);
+            return;
+        }
+        if (SelectedScheme is not PlaybackScheme scheme) return;
+        if (scheme.Validate() is string error)
+        {
             ShowMessage(error, InfoBarSeverity.Warning);
+            return;
+        }
+        try { PlayPreview(scheme); }
+        catch (Exception ex) { ShowError("无法预览方案", ex); }
     }
 
     private void StopPreviewClicked(object sender, RoutedEventArgs e) => StopPreview();
 
     private void StopPreview()
     {
-        PreviewView.Source = null;
+        _previewTimer?.Stop();
+        _previewTimer = null;
+        _previewSlideshow = null;
+        _previewScheme = null;
+        _previewFadeStarted = false;
+        DisposePreviewPlayer(ref _previewVideo);
+        DisposePreviewPlayer(ref _previewAudio);
+        PreviewView.SetMediaPlayer(null);
+        PreviewView.Visibility = Visibility.Visible;
         PreviewImage.Source = null;
         PreviewFadeOverlay.Opacity = 0;
+        PreviewProgress.Value = 0;
     }
 
     private void PlayNextClicked(object sender, RoutedEventArgs e)
     {
-        if (_schemes.Count == 0)
-            ShowMessage("请先创建并配置至少一套方案。", InfoBarSeverity.Warning);
+        if (!_queue.IsPlaying && !ValidateAllSchemes()) return;
+        try
+        {
+            StopPreview();
+            EnsureOutputWindow();
+            var scheme = _queue.Advance();
+            if (scheme is null)
+            {
+                _coordinator!.Stop();
+                PlayNextButton.Content = "▶ 开始正式播放";
+                ModeText.Text = "●  预览模式";
+                StatusText.Text = "全部方案已播放完毕，正式输出已停止";
+                return;
+            }
+            _coordinator!.Play(scheme);
+            PlayNextButton.Content = "▶ 下一套";
+            ModeText.Text = "●  正式输出中";
+            StatusText.Text = $"正在输出 {scheme.Name} · {(_queue.CurrentIndex ?? 0) + 1}/{_schemes.Count}";
+        }
+        catch (Exception ex)
+        {
+            ShowError("正式播放失败", ex);
+        }
     }
 
     private void StopOutputClicked(object sender, RoutedEventArgs e)
     {
         _queue.Stop();
+        _coordinator?.Stop();
         PlayNextButton.Content = "▶ 开始正式播放";
         ModeText.Text = "●  预览模式";
         StatusText.Text = "正式输出已停止";
     }
 
+    private bool ValidateAllSchemes()
+    {
+        if (_schemes.Count == 0)
+        {
+            ShowMessage("请先创建并配置至少一套方案。", InfoBarSeverity.Warning);
+            return false;
+        }
+        foreach (var scheme in _schemes)
+        {
+            if (scheme.Validate() is string error)
+            {
+                ShowMessage($"{scheme.Name}：{error}", InfoBarSeverity.Warning);
+                return false;
+            }
+            var paths = scheme.Images.Select(image => image.Path)
+                .Concat(scheme.Video is null ? [] : [scheme.Video.Path])
+                .Concat(scheme.Audio is null ? [] : [scheme.Audio.Path]);
+            if (paths.Any(path => !File.Exists(path)))
+            {
+                ShowMessage($"{scheme.Name}：有素材文件不存在或已被移动。", InfoBarSeverity.Error);
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private void EnsureOutputWindow()
+    {
+        if (_outputWindow is null)
+        {
+            _outputWindow = new PlaybackWindow();
+            _coordinator = new PlaybackCoordinator(_outputWindow);
+            _coordinator.ErrorOccurred += message => ShowMessage(message, InfoBarSeverity.Error);
+        }
+        DisplayService.ShowFullScreen(_outputWindow, SelectedOutputDisplay);
+        _outputWindow.Activate();
+    }
+
+    private void PlayPreview(PlaybackScheme scheme)
+    {
+        StopPreview();
+        _previewScheme = scheme;
+        PreviewSchemeText.Text = scheme.Name;
+        if (scheme.Video is not null)
+        {
+            _previewVideo = CreatePreviewPlayer(scheme.Video, scheme.IsVideoLooping, scheme.Audio is not null);
+            _previewVideo.MediaEnded += OnPreviewVideoEnded;
+            PreviewView.SetMediaPlayer(_previewVideo);
+            PreviewView.Visibility = Visibility.Visible;
+            PreviewImage.Source = null;
+            _previewVideo.Play();
+            _previewTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
+            _previewTimer.Tick += OnPreviewVideoTick;
+            _previewTimer.Start();
+        }
+        else
+        {
+            PreviewView.SetMediaPlayer(null);
+            PreviewView.Visibility = Visibility.Collapsed;
+            _previewSlideshow = new ImageSlideshow(scheme);
+            PreviewImage.Source = new BitmapImage(new Uri(_previewSlideshow.Current.Path));
+            if (scheme.Images.Count > 1)
+            {
+                _previewTimer = new DispatcherTimer { Interval = _previewSlideshow.Interval };
+                _previewTimer.Tick += OnPreviewImageTick;
+                _previewTimer.Start();
+            }
+        }
+        if (scheme.Audio is not null)
+        {
+            _previewAudio = CreatePreviewPlayer(scheme.Audio, scheme.IsAudioLooping, false);
+            _previewAudio.Play();
+        }
+        StatusText.Text = $"正在预览 {scheme.Name}";
+    }
+
+    private MediaPlayer CreatePreviewPlayer(MediaAsset asset, bool loop, bool muted)
+    {
+        var player = new MediaPlayer
+        {
+            Source = MediaSource.CreateFromUri(new Uri(asset.Path)),
+            IsLoopingEnabled = loop,
+            IsMuted = muted,
+            Volume = PreviewVolume.Value
+        };
+        player.MediaFailed += (sender, args) => ShowMessage($"预览播放失败：{args.ErrorMessage}", InfoBarSeverity.Error);
+        return player;
+    }
+
+    private void OnPreviewVideoTick(object? sender, object e)
+    {
+        if (_previewVideo is null || _previewScheme is null) return;
+        var session = _previewVideo.PlaybackSession;
+        var duration = session.NaturalDuration;
+        if (duration > TimeSpan.Zero)
+        {
+            PreviewProgress.Maximum = duration.TotalSeconds;
+            PreviewProgress.Value = session.Position.TotalSeconds;
+        }
+        if (_previewScheme.IsVideoLooping || _previewScheme.EndBehavior != VideoEndBehavior.FadeToBlack || _previewFadeStarted)
+            return;
+        var remaining = duration - session.Position;
+        if (remaining <= TimeSpan.FromSeconds(2))
+        {
+            _previewFadeStarted = true;
+            PreviewFadeOverlay.Opacity = 0;
+            PlaybackWindow.FadeToBlack(PreviewFadeOverlay, remaining > TimeSpan.Zero ? remaining : TimeSpan.FromMilliseconds(1));
+        }
+    }
+
+    private void OnPreviewVideoEnded(MediaPlayer sender, object args)
+    {
+        if (_previewScheme?.EndBehavior == VideoEndBehavior.FadeToBlack)
+            PreviewFadeOverlay.Opacity = 1;
+    }
+
+    private void OnPreviewImageTick(object? sender, object e)
+    {
+        if (_previewSlideshow is null) return;
+        PreviewImage.Source = new BitmapImage(new Uri(_previewSlideshow.MoveNext().Path));
+    }
+
+    private void OnPreviewVolumeChanged(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
+    {
+        if (_previewVideo is not null) _previewVideo.Volume = e.NewValue;
+        if (_previewAudio is not null) _previewAudio.Volume = e.NewValue;
+    }
+
+    private static void DisposePreviewPlayer(ref MediaPlayer? player)
+    {
+        if (player is null) return;
+        player.Pause();
+        player.Source = null;
+        player.Dispose();
+        player = null;
+    }
     private void ShowError(string title, Exception ex)
     {
         System.Diagnostics.Debug.WriteLine(ex);
@@ -299,7 +491,10 @@ public partial class MainWindow : Window
     private void OnClosing(AppWindow sender, AppWindowClosingEventArgs args)
     {
         StopPreview();
+        _coordinator?.Stop();
         Application.Current.Exit();
     }
 }
+
+
 
