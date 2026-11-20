@@ -73,14 +73,17 @@ public static class MediaImportService
             _ => MediaKind.Video
         };
         string details;
+        var duration = TimeSpan.Zero;
         if (kind == MediaKind.Video)
         {
             var properties = await file.Properties.GetVideoPropertiesAsync();
+            duration = properties.Duration;
             details = $"{FormatDuration(properties.Duration)} · {properties.Width}×{properties.Height}";
         }
         else if (kind == MediaKind.Audio)
         {
             var properties = await file.Properties.GetMusicPropertiesAsync();
+            duration = properties.Duration;
             details = FormatDuration(properties.Duration);
         }
         else
@@ -102,7 +105,7 @@ public static class MediaImportService
         }
         return new MediaLibraryItem
         {
-            Asset = new MediaAsset(file.Path, kind),
+            Asset = new MediaAsset(file.Path, kind) { DurationSeconds = duration.TotalSeconds },
             Thumbnail = thumbnail,
             Details = $"{extension.TrimStart('.').ToUpperInvariant()} · {details}"
         };
@@ -113,4 +116,3 @@ public static class MediaImportService
         : null;
     private static string FormatDuration(TimeSpan duration) => $"{(int)duration.TotalMinutes:00}:{duration.Seconds:00}";
 }
-

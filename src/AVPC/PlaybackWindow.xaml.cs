@@ -8,6 +8,8 @@ namespace AVPC;
 
 public partial class PlaybackWindow : Window
 {
+    private Storyboard? _fadeStoryboard;
+
     public PlaybackWindow()
     {
         InitializeComponent();
@@ -33,27 +35,43 @@ public partial class PlaybackWindow : Window
         FadeOverlay.Opacity = 0;
     }
 
-    public void ResetFade() => FadeOverlay.Opacity = 0;
+    public void ResetFade()
+    {
+        _fadeStoryboard?.Stop();
+        _fadeStoryboard = null;
+        FadeOverlay.Opacity = 0;
+    }
 
     public void BeginFade(TimeSpan duration)
     {
-        FadeOverlay.Opacity = 0;
-        FadeToBlack(FadeOverlay, duration);
+        ResetFade();
+        _fadeStoryboard = FadeToBlack(FadeOverlay, duration);
     }
+
+    public void PauseFade() => _fadeStoryboard?.Pause();
+
+    public void ResumeFade() => _fadeStoryboard?.Resume();
 
     public void HoldLastFrame() => FadeOverlay.Opacity = 0;
 
-    public void ShowBlackAfterFade() => FadeOverlay.Opacity = 1;
+    public void ShowBlackAfterFade()
+    {
+        _fadeStoryboard?.Stop();
+        _fadeStoryboard = null;
+        FadeOverlay.Opacity = 1;
+    }
 
     public void Clear()
     {
+        _fadeStoryboard?.Stop();
+        _fadeStoryboard = null;
         VideoView.SetMediaPlayer(null);
         VideoView.Visibility = Visibility.Visible;
         ImageView.Source = null;
         FadeOverlay.Opacity = 1;
     }
 
-    public static void FadeToBlack(Grid overlay, TimeSpan duration)
+    public static Storyboard FadeToBlack(Grid overlay, TimeSpan duration)
     {
         var animation = new DoubleAnimation
         {
@@ -66,5 +84,6 @@ public partial class PlaybackWindow : Window
         Storyboard.SetTargetProperty(animation, "Opacity");
         storyboard.Children.Add(animation);
         storyboard.Begin();
+        return storyboard;
     }
 }

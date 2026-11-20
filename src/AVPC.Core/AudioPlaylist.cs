@@ -18,7 +18,7 @@ public sealed class AudioPlaylist
     {
         if (_index + 1 >= _scheme.Audios.Count)
         {
-            if (!_scheme.IsAudioLooping) return null;
+            if (!_scheme.IsLooping) return null;
             _index = 0;
         }
         else

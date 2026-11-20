@@ -35,6 +35,18 @@ public sealed class PlaybackQueue
         return CurrentScheme;
     }
 
+    public PlaybackScheme Select(int index)
+    {
+        if ((uint)index >= (uint)_schemes.Count) throw new ArgumentOutOfRangeException(nameof(index));
+        CurrentIndex = index;
+        return CurrentScheme!;
+    }
+    public PlaybackScheme? Previous()
+    {
+        if (CurrentIndex is not int index || index <= 0) return null;
+        CurrentIndex--;
+        return CurrentScheme;
+    }
     public void Stop() => CurrentIndex = null;
 
     public void Move(int oldIndex, int newIndex)

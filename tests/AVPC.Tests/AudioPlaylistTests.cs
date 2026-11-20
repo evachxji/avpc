@@ -20,9 +20,9 @@ public sealed class AudioPlaylistTests
     }
 
     [Fact]
-    public void Playlist_WrapsWhenLooping()
+    public void Playlist_WrapsWhenUnifiedLoopingIsEnabled()
     {
-        var scheme = new PlaybackScheme { IsAudioLooping = true };
+        var scheme = new PlaybackScheme { IsLooping = true };
         scheme.AssignMedia(First);
         scheme.AssignMedia(Second);
         var playlist = new AudioPlaylist(scheme);

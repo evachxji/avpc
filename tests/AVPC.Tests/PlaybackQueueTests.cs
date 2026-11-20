@@ -65,4 +65,57 @@ public sealed class PlaybackQueueTests
         Assert.Equal(1, queue.CurrentIndex);
         Assert.Null(queue.Advance());
     }
+    [Fact]
+    public void Previous_BeforeStartOrAtFirstScheme_StaysPut()
+    {
+        var first = Scheme("第一套");
+        var second = Scheme("第二套");
+        var queue = new PlaybackQueue([first, second]);
+
+        Assert.Null(queue.Previous());
+        Assert.Null(queue.CurrentIndex);
+        Assert.Same(first, queue.Advance());
+        Assert.Null(queue.Previous());
+        Assert.Equal(0, queue.CurrentIndex);
+        Assert.Same(first, queue.CurrentScheme);
+    }
+
+    [Fact]
+    public void Previous_ReturnsToPreviousScheme()
+    {
+        var first = Scheme("第一套");
+        var second = Scheme("第二套");
+        var queue = new PlaybackQueue([first, second]);
+        queue.Advance();
+        queue.Advance();
+
+        Assert.Same(first, queue.Previous());
+        Assert.Equal(0, queue.CurrentIndex);
+        Assert.Same(second, queue.Advance());
+    }
+    [Fact]
+    public void Select_JumpsToRequestedSchemeAndPreservesNavigationOrder()
+    {
+        var first = Scheme("第一套");
+        var second = Scheme("第二套");
+        var third = Scheme("第三套");
+        var queue = new PlaybackQueue([first, second, third]);
+
+        Assert.Same(second, queue.Select(1));
+        Assert.Equal(1, queue.CurrentIndex);
+        Assert.Same(third, queue.Advance());
+        Assert.Same(second, queue.Previous());
+    }
+
+    [Fact]
+    public void Select_InvalidIndex_ThrowsWithoutChangingCurrentScheme()
+    {
+        var first = Scheme("第一套");
+        var queue = new PlaybackQueue([first]);
+        queue.Advance();
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => queue.Select(1));
+        Assert.Same(first, queue.CurrentScheme);
+        Assert.Equal(0, queue.CurrentIndex);
+    }
 }

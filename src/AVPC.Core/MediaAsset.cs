@@ -11,6 +11,8 @@ public enum MediaKind
 
 public sealed partial record MediaAsset(string Path, MediaKind Kind)
 {
+    public double DurationSeconds { get; set; }
+
     public string DisplayName => PrefixRegex().Replace(System.IO.Path.GetFileNameWithoutExtension(Path), string.Empty);
 
     [GeneratedRegex(@"^\d+-[0-9a-f]+-", RegexOptions.IgnoreCase)]

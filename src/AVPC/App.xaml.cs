@@ -8,6 +8,7 @@ public partial class App : Application
     public App()
     {
         InitializeComponent();
+        UnhandledException += (sender, args) => Diagnostics.LogException("应用未处理异常", args.Exception);
     }
 
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
