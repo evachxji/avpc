@@ -16,7 +16,7 @@ public sealed class PlaybackQueueTests
     }
 
     [Fact]
-    public void Advance_VisitsSchemesInOrder_ThenStops()
+    public void Advance_VisitsSchemesWithoutPlaying_ThenEntersEndState()
     {
         var first = Scheme("第一套");
         var second = Scheme("第二套");
@@ -24,12 +24,14 @@ public sealed class PlaybackQueueTests
 
         Assert.Same(first, queue.Advance());
         Assert.Equal(0, queue.CurrentIndex);
+        Assert.False(queue.IsPlaying);
         Assert.Same(second, queue.Advance());
         Assert.Equal(1, queue.CurrentIndex);
+        Assert.False(queue.IsPlaying);
         Assert.Null(queue.Advance());
         Assert.False(queue.IsPlaying);
+        Assert.True(queue.IsPastEnd);
         Assert.Null(queue.CurrentScheme);
-        Assert.Same(first, queue.Advance());
     }
 
     [Fact]
@@ -41,6 +43,45 @@ public sealed class PlaybackQueueTests
         queue.Advance();
         queue.Stop();
         Assert.Same(first, queue.Advance());
+    }
+
+    [Fact]
+    public void Start_PlaysCurrentSelectionWithoutChangingIndex()
+    {
+        var first = Scheme("第一套");
+        var second = Scheme("第二套");
+        var queue = new PlaybackQueue([first, second]);
+        queue.Advance();
+        queue.Advance();
+
+        Assert.Same(second, queue.Start());
+        Assert.Equal(1, queue.CurrentIndex);
+        Assert.True(queue.IsPlaying);
+    }
+
+    [Fact]
+    public void Start_FromStoppedState_PlaysFirstScheme()
+    {
+        var first = Scheme("第一套");
+        var queue = new PlaybackQueue([first, Scheme("第二套")]);
+
+        Assert.Same(first, queue.Start());
+        Assert.Equal(0, queue.CurrentIndex);
+        Assert.True(queue.IsPlaying);
+    }
+
+    [Fact]
+    public void Start_FromEndState_PlaysFirstScheme()
+    {
+        var first = Scheme("第一套");
+        var queue = new PlaybackQueue([first]);
+        queue.Advance();
+        queue.Advance();
+
+        Assert.Same(first, queue.Start());
+        Assert.Equal(0, queue.CurrentIndex);
+        Assert.True(queue.IsPlaying);
+        Assert.False(queue.IsPastEnd);
     }
 
     [Fact]
@@ -66,7 +107,7 @@ public sealed class PlaybackQueueTests
         Assert.Null(queue.Advance());
     }
     [Fact]
-    public void Previous_BeforeStartOrAtFirstScheme_StaysPut()
+    public void Previous_BeforeStart_StaysUnselected()
     {
         var first = Scheme("第一套");
         var second = Scheme("第二套");
@@ -74,10 +115,35 @@ public sealed class PlaybackQueueTests
 
         Assert.Null(queue.Previous());
         Assert.Null(queue.CurrentIndex);
-        Assert.Same(first, queue.Advance());
-        Assert.Null(queue.Previous());
-        Assert.Equal(0, queue.CurrentIndex);
-        Assert.Same(first, queue.CurrentScheme);
+    }
+
+    [Fact]
+    public void Previous_AtFirstScheme_WrapsToLastWithoutPlaying()
+    {
+        var first = Scheme("第一套");
+        var second = Scheme("第二套");
+        var queue = new PlaybackQueue([first, second]);
+        queue.Advance();
+
+        Assert.Same(second, queue.Previous());
+        Assert.Equal(1, queue.CurrentIndex);
+        Assert.False(queue.IsPlaying);
+    }
+
+    [Fact]
+    public void Previous_FromEndState_ReturnsToLastSchemeWithoutPlaying()
+    {
+        var first = Scheme("第一套");
+        var second = Scheme("第二套");
+        var queue = new PlaybackQueue([first, second]);
+        queue.Advance();
+        queue.Advance();
+        Assert.Null(queue.Advance());
+
+        Assert.Same(second, queue.Previous());
+        Assert.Equal(1, queue.CurrentIndex);
+        Assert.False(queue.IsPlaying);
+        Assert.False(queue.IsPastEnd);
     }
 
     [Fact]

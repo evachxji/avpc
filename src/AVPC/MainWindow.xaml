@@ -293,10 +293,7 @@
                             </Button>
                             <Slider x:Name="PreviewProgress" Grid.Column="1" MinWidth="0" VerticalAlignment="Center" Minimum="0" Maximum="0" Foreground="#FF62B899" />
                             <TextBlock x:Name="PreviewTimeText" Grid.Column="2" Text="00:00 / 00:00" FontFamily="Consolas" FontSize="11" Foreground="#FFA1ABB2" VerticalAlignment="Center" />
-                            <StackPanel Grid.Column="3" HorizontalAlignment="Right" Orientation="Horizontal" Spacing="6">
-                                <FontIcon Glyph="&#xE767;" FontSize="15" Foreground="#FFA1ABB2" VerticalAlignment="Center" ToolTipService.ToolTip="音量" />
-                                <Slider x:Name="PreviewVolume" Width="76" VerticalAlignment="Center" Minimum="0" Maximum="1" Value="0.8" StepFrequency="0.05" Foreground="#FF62B899" />
-                            </StackPanel>
+                            <FontIcon Grid.Column="3" Glyph="&#xE767;" FontSize="15" Foreground="#FFA1ABB2" VerticalAlignment="Center" ToolTipService.ToolTip="音量" />
                         </Grid>
                     </StackPanel>
 
@@ -352,7 +349,6 @@
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                         <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
                     <Grid>
                         <TextBlock x:Name="SchemeCountText" Text="播放方案 · 0 套" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" />
@@ -369,10 +365,15 @@
                                         </Border>
                                         <StackPanel Grid.Column="1" Spacing="5">
                                             <Grid>
-                                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="13" Margin="0,0,72,0" Visibility="{Binding NameVisibility}" DoubleTapped="SchemeNameDoubleTapped" />
-                                                <TextBox Text="{Binding EditingName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Visibility="{Binding EditorVisibility}" MinHeight="30" Padding="6,2" Margin="0,0,72,0" LostFocus="SchemeNameEditorLostFocus" KeyDown="SchemeNameEditorKeyDown" />
-                                                <TextBlock Text="⋮⋮" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,36,0" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
-                                                <Button Content="▶" Width="30" Height="30" Padding="0" FontSize="12" HorizontalAlignment="Right" VerticalAlignment="Top" Background="Transparent" BorderThickness="0" ToolTipService.ToolTip="播放此方案" Click="PlaySchemeCardClicked" />
+                                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="13" Margin="0,0,106,0" Visibility="{Binding NameVisibility}" DoubleTapped="SchemeNameDoubleTapped" />
+                                                <TextBox Text="{Binding EditingName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Visibility="{Binding EditorVisibility}" MinHeight="30" Padding="6,2" Margin="0,0,106,0" LostFocus="SchemeNameEditorLostFocus" KeyDown="SchemeNameEditorKeyDown" />
+                                                <TextBlock Text="⋮⋮" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,72,0" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                                                <StackPanel HorizontalAlignment="Right" VerticalAlignment="Top" Orientation="Horizontal" Spacing="2">
+                                                    <Button Width="30" Height="30" Padding="0" HorizontalAlignment="Right" VerticalAlignment="Top" Background="Transparent" BorderThickness="0" ToolTipService.ToolTip="删除此方案" AutomationProperties.Name="删除方案" Click="DeleteSchemeCardClicked">
+                                                        <FontIcon Glyph="&#xE74D;" FontSize="14" />
+                                                    </Button>
+                                                    <Button Content="▶" Width="30" Height="30" Padding="0" FontSize="12" HorizontalAlignment="Right" VerticalAlignment="Top" Background="Transparent" BorderThickness="0" ToolTipService.ToolTip="播放此方案" Click="PlaySchemeCardClicked" />
+                                                </StackPanel>
                                             </Grid>
                                             <TextBlock Text="{Binding VisualName}" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" />
                                             <Border Background="#66000000" CornerRadius="5" Padding="8,4" Margin="0,2,0,0">
@@ -397,7 +398,6 @@
                         </ListView.ItemTemplate>
                     </ListView>
                     <Button Grid.Row="2" Content="＋ 新建播放方案" HorizontalAlignment="Stretch" Click="AddSchemeClicked" />
-                    <Button Grid.Row="3" Content="删除选中方案" HorizontalAlignment="Stretch" Margin="0,8,0,0" Click="DeleteSchemeClicked" />
                 </Grid>
             </Border>
         </Grid>
@@ -408,6 +408,7 @@
             <Grid ColumnSpacing="12">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
@@ -426,11 +427,12 @@
                     <ComboBoxItem Content="×10" />
                     <ComboBoxItem Content="×20" />
                 </ComboBox>
-                <Button Grid.Column="2" Content="开启展示" Click="OpenOutputClicked" />
-                <Button Grid.Column="3" Content="结束展示" Click="EndOutputClicked" />
-                <Button Grid.Column="4" Content="上一套" Click="PreviousOutputClicked" />
-                <Button x:Name="PlayPauseOutputButton" Grid.Column="5" Content="▶ 开始" Style="{StaticResource AccentButtonStyle}" MinWidth="96" Click="PlayPauseOutputClicked" />
-                <Button Grid.Column="6" Content="下一套" Click="NextOutputClicked" />
+                <Slider x:Name="PreviewVolume" Grid.Column="2" Width="88" VerticalAlignment="Center" Minimum="0" Maximum="1" Value="0.8" StepFrequency="0.05" Foreground="#FF62B899" ToolTipService.ToolTip="全局音量" />
+                <Button Grid.Column="3" Content="开启展示" Click="OpenOutputClicked" />
+                <Button Grid.Column="4" Content="结束展示" Click="EndOutputClicked" />
+                <Button Grid.Column="5" Content="上一套" Click="PreviousOutputClicked" />
+                <Button x:Name="PlayPauseOutputButton" Grid.Column="6" Content="▶ 开始" Style="{StaticResource AccentButtonStyle}" MinWidth="96" Click="PlayPauseOutputClicked" />
+                <Button Grid.Column="7" Content="下一套" Click="NextOutputClicked" />
             </Grid>
         </Border>
     </Grid>

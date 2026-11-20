@@ -65,6 +65,12 @@ public sealed class PlaybackCoordinator
         }
     }
 
+    public void Prepare(PlaybackScheme scheme)
+    {
+        Play(scheme);
+        Pause();
+    }
+
     public void Stop()
     {
         _visualTimer?.Stop();

@@ -269,14 +269,31 @@ public partial class MainWindow : Window
         UpdateSchemeCount();
     }
 
-    private void DeleteSchemeClicked(object sender, RoutedEventArgs e)
+    private async void DeleteSchemeCardClicked(object sender, RoutedEventArgs e)
     {
-        if (!EnsureEditable() || SelectedScheme is not PlaybackScheme scheme) return;
+        if (!EnsureEditable() || (sender as FrameworkElement)?.DataContext is not SchemeCardViewModel card) return;
+        var dialog = new ContentDialog
+        {
+            XamlRoot = Content.XamlRoot,
+            Title = "删除播放方案",
+            Content = $"确定删除“{card.Scheme.Name}”吗？删除后无法撤销。",
+            PrimaryButtonText = "删除",
+            CloseButtonText = "取消",
+            DefaultButton = ContentDialogButton.Close
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+
+        if (ReferenceEquals(_queue.CurrentScheme, card.Scheme))
+        {
+            StopOutput();
+            HideOutputWindow();
+        }
         StopPreview();
-        _schemes.Remove(SelectedCard!);
+        _schemes.Remove(card);
         RefreshQueue();
         UpdateSchemeCount();
         SchemeList.SelectedItem = _schemes.FirstOrDefault();
+        StatusText.Text = $"已删除 {card.Scheme.Name}";
     }
 
     private void SchemeSelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -460,7 +477,7 @@ public partial class MainWindow : Window
 
     private void OutputDisplayChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (_outputWindow is not null && OutputDisplaySelector.SelectedItem is DisplayOption display)
+        if (_outputWindow?.AppWindow.IsVisible == true && OutputDisplaySelector.SelectedItem is DisplayOption display)
             DisplayService.ShowFullScreen(_outputWindow, display.Area);
     }
 
@@ -562,8 +579,8 @@ public partial class MainWindow : Window
     private async void PlaySchemeCardClicked(object sender, RoutedEventArgs e)
     {
         if ((sender as FrameworkElement)?.DataContext is not SchemeCardViewModel card) return;
-        if (!_queue.IsPlaying && !ValidateAllSchemes()) return;
-        if (_outputWindow is not null)
+        if (!ValidateAllSchemes()) return;
+        if (_outputWindow?.AppWindow.IsVisible == true)
         {
             var dialog = new ContentDialog
             {
@@ -581,7 +598,9 @@ public partial class MainWindow : Window
         {
             var index = _schemes.IndexOf(card);
             if (index < 0) return;
-            PlayOutputScheme(_queue.Select(index));
+            var scheme = _queue.Select(index);
+            _queue.Start();
+            PlayOutputScheme(scheme, autoPlay: true);
         }
         catch (Exception ex)
         {
@@ -631,7 +650,16 @@ public partial class MainWindow : Window
             if (!_queue.IsPlaying)
             {
                 if (!ValidateAllSchemes()) return;
-                PlayOutputScheme(_queue.Advance());
+                if (_queue.CurrentScheme is not null)
+                {
+                    var selectedScheme = _queue.Start()!;
+                    _coordinator.Resume();
+                    _isOutputPaused = false;
+                    UpdateOutputMode();
+                    StatusText.Text = $"正在输出 {selectedScheme.Name} · {(_queue.CurrentIndex ?? 0) + 1}/{_schemes.Count}";
+                    return;
+                }
+                PlayOutputScheme(_queue.Start(), autoPlay: true);
                 return;
             }
 
@@ -654,11 +682,11 @@ public partial class MainWindow : Window
 
     private void PreviousOutputClicked(object sender, RoutedEventArgs e)
     {
-        if (_outputWindow is null || _coordinator is null || !_queue.IsPlaying) return;
+        if (_outputWindow is null || _coordinator is null) return;
         try
         {
             var scheme = _queue.Previous();
-            if (scheme is not null) PlayOutputScheme(scheme);
+            if (scheme is not null) PlayOutputScheme(scheme, autoPlay: false);
         }
         catch (Exception ex)
         {
@@ -670,10 +698,18 @@ public partial class MainWindow : Window
     private void NextOutputClicked(object sender, RoutedEventArgs e)
     {
         if (_outputWindow is null || _coordinator is null) return;
-        if (!_queue.IsPlaying && !ValidateAllSchemes()) return;
         try
         {
-            PlayOutputScheme(_queue.Advance());
+            var scheme = _queue.Advance();
+            if (scheme is null)
+            {
+                _coordinator.Stop();
+                _isOutputPaused = false;
+                UpdateOutputMode();
+                StatusText.Text = "全部方案已展示完毕";
+                return;
+            }
+            PlayOutputScheme(scheme, autoPlay: false);
         }
         catch (Exception ex)
         {
@@ -682,36 +718,33 @@ public partial class MainWindow : Window
         }
     }
 
-    private void PlayOutputScheme(PlaybackScheme? scheme)
+    private void PlayOutputScheme(PlaybackScheme? scheme, bool autoPlay)
     {
         if (scheme is null)
         {
-            StopOutput();
-            StatusText.Text = "全部方案已播放完毕，正式输出已停止";
             return;
         }
         StopPreview();
         EnsureOutputWindow();
-        _coordinator!.Play(scheme);
-        _isOutputPaused = false;
+        if (autoPlay)
+            _coordinator!.Play(scheme);
+        else
+            _coordinator!.Prepare(scheme);
+        _isOutputPaused = !autoPlay;
         UpdateOutputMode();
-        StatusText.Text = $"正在输出 {scheme.Name} · {(_queue.CurrentIndex ?? 0) + 1}/{_schemes.Count}";
+        StatusText.Text = autoPlay
+            ? $"正在输出 {scheme.Name} · {(_queue.CurrentIndex ?? 0) + 1}/{_schemes.Count}"
+            : $"已定位 {scheme.Name}，点击开始后播放";
     }
 
     private void EndOutputClicked(object sender, RoutedEventArgs e)
     {
-        Diagnostics.Log("结束输出：开始停止");
         try
         {
             StopOutput();
-            Diagnostics.Log("结束输出：停止完成，准备调用输出窗口 Close");
-            _outputWindow?.Close();
-            Diagnostics.Log("结束输出：输出窗口 Close 已返回");
-            _outputWindow = null;
-            _coordinator = null;
+            HideOutputWindow();
             UpdateOutputMode();
             StatusText.Text = "正式输出已结束，输出窗口已关闭";
-            Diagnostics.Log("结束输出：完成");
         }
         catch (Exception ex)
         {
@@ -728,12 +761,23 @@ public partial class MainWindow : Window
         UpdateOutputMode();
     }
 
+    private void HideOutputWindow()
+    {
+        if (_outputWindow?.AppWindow.IsVisible == true)
+            _outputWindow.AppWindow.Hide();
+        UpdateOutputMode();
+    }
+
     private void UpdateOutputMode()
     {
+        var outputVisible = _outputWindow?.AppWindow.IsVisible == true;
         PlayPauseOutputButton.Content = !_queue.IsPlaying ? "▶ 开始" : _isOutputPaused ? "▶ 继续" : "⏸ 暂停";
         ModeText.Text = _queue.IsPlaying
             ? _isOutputPaused ? "●  正式输出已暂停" : "●  正式输出中"
-            : _outputWindow is null ? "●  预览模式" : "●  展示待开始";
+            : !outputVisible ? "●  预览模式"
+            : _queue.IsPastEnd ? "●  展示已结束"
+            : _queue.CurrentScheme is not null ? "●  展示已定位"
+            : "●  展示待开始";
     }
 
     private bool ValidateAllSchemes()
@@ -771,6 +815,15 @@ public partial class MainWindow : Window
             _coordinator.Volume = PreviewVolume.Value;
             _coordinator.PlaybackRate = SelectedPlaybackRate;
             _coordinator.ErrorOccurred += message => ShowMessage(message, InfoBarSeverity.Error);
+            _outputWindow.Closed += (sender, args) =>
+            {
+                if (!ReferenceEquals(sender, _outputWindow)) return;
+                _outputWindow = null;
+                _coordinator = null;
+                _isOutputPaused = false;
+                _queue.Stop();
+                UpdateOutputMode();
+            };
         }
         DisplayService.ShowFullScreen(_outputWindow, SelectedOutputDisplay);
         _outputWindow.Activate();
