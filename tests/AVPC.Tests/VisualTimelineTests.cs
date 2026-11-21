@@ -47,6 +47,19 @@ public sealed class VisualTimelineTests
     }
 
     [Fact]
+    public void Timeline_SeekWithinCurrentVisualDoesNotCrossBoundary()
+    {
+        var scheme = CreateScheme();
+        var timeline = new VisualTimeline(scheme.Visuals, scheme.ImageDurationSeconds);
+
+        var sameVisual = timeline.Locate(TimeSpan.FromSeconds(30));
+        var nextVisual = timeline.Locate(TimeSpan.FromSeconds(70));
+
+        Assert.False(sameVisual.CrossesVisualBoundary(currentIndex: 0));
+        Assert.True(nextVisual.CrossesVisualBoundary(currentIndex: 0));
+    }
+
+    [Fact]
     public void Timeline_ClampsGlobalPositionAndReportsUnknownVideoDuration()
     {
         var scheme = CreateScheme();

@@ -100,9 +100,12 @@ public sealed class SchemeCardViewModel : INotifyPropertyChanged
     public IReadOnlyList<object> AudioGalleryItems { get; private set; } = [];
     public IReadOnlyList<AudioBranchRow> AudioRows { get; private set; } = [];
     public bool IsRenaming { get; private set; }
+    private bool _isHighlighted;
     public string EditingName { get; set; } = string.Empty;
     public Visibility NameVisibility => IsRenaming ? Visibility.Collapsed : Visibility.Visible;
     public Visibility EditorVisibility => IsRenaming ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility HighlightVisibility => _isHighlighted ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility LoopVisibility => Scheme.IsLooping ? Visibility.Visible : Visibility.Collapsed;
 
     public string VisualName
     {
@@ -120,7 +123,13 @@ public sealed class SchemeCardViewModel : INotifyPropertyChanged
     public bool IsLooping
     {
         get => Scheme.IsLooping;
-        set { Scheme.IsLooping = value; OnPropertyChanged(); Changed?.Invoke(); }
+        set
+        {
+            Scheme.IsLooping = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(LoopVisibility));
+            Changed?.Invoke();
+        }
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -148,6 +157,13 @@ public sealed class SchemeCardViewModel : INotifyPropertyChanged
         EditingName = Name;
         IsRenaming = false;
         OnPropertyChanged(null);
+    }
+
+    public void SetHighlighted(bool isHighlighted)
+    {
+        if (_isHighlighted == isHighlighted) return;
+        _isHighlighted = isHighlighted;
+        OnPropertyChanged(nameof(HighlightVisibility));
     }
 
     public void RefreshSummary(IEnumerable<MediaLibraryItem> media)

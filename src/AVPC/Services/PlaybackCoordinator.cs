@@ -7,8 +7,12 @@ namespace AVPC.Services;
 
 public sealed class PlaybackCoordinator
 {
+    public readonly record struct VideoProgress(TimeSpan Position, TimeSpan Duration);
+
     private readonly PlaybackWindow _output;
+    private readonly IPlaybackSurface? _monitor;
     private MediaPlayer? _videoPlayer;
+    private MediaPlayer? _monitorVideoPlayer;
     private MediaPlayer? _audioPlayer;
     private AudioPlaylist? _audioPlaylist;
     private DispatcherTimer? _visualTimer;
@@ -22,12 +26,14 @@ public sealed class PlaybackCoordinator
     private double _volume = 1;
     private double _playbackRate = 1;
 
-    public PlaybackCoordinator(PlaybackWindow output)
+    public PlaybackCoordinator(PlaybackWindow output, IPlaybackSurface? monitor = null)
     {
         _output = output;
+        _monitor = monitor;
     }
 
     public event Action<string>? ErrorOccurred;
+    public event Action<VideoProgress?>? VideoProgressChanged;
 
     public double Volume
     {
@@ -36,6 +42,7 @@ public sealed class PlaybackCoordinator
         {
             _volume = Math.Clamp(value, 0, 1);
             if (_videoPlayer is not null) _videoPlayer.Volume = _volume;
+            if (_monitorVideoPlayer is not null) _monitorVideoPlayer.Volume = _volume;
             if (_audioPlayer is not null) _audioPlayer.Volume = _volume;
         }
     }
@@ -47,6 +54,7 @@ public sealed class PlaybackCoordinator
         {
             _playbackRate = value;
             if (_videoPlayer is not null) _videoPlayer.PlaybackSession.PlaybackRate = _playbackRate;
+            if (_monitorVideoPlayer is not null) _monitorVideoPlayer.PlaybackSession.PlaybackRate = _playbackRate;
             if (_audioPlayer is not null) _audioPlayer.PlaybackSession.PlaybackRate = _playbackRate;
         }
     }
@@ -55,6 +63,7 @@ public sealed class PlaybackCoordinator
         Stop();
         _scheme = scheme;
         _output.ResetFade();
+        _monitor?.ResetFade();
         _visualPlaylist = new VisualPlaylist(scheme);
         PlayCurrentVisual();
 
@@ -83,9 +92,12 @@ public sealed class PlaybackCoordinator
         _isPaused = false;
         _remainingVisualDelay = TimeSpan.Zero;
         DisposePlayer(ref _videoPlayer);
+        DisposePlayer(ref _monitorVideoPlayer);
         DisposePlayer(ref _audioPlayer);
         _audioPlaylist = null;
         _output.Clear();
+        _monitor?.Clear();
+        VideoProgressChanged?.Invoke(null);
     }
 
     public void Pause()
@@ -99,8 +111,10 @@ public sealed class PlaybackCoordinator
         }
         _fadeTimer?.Stop();
         _videoPlayer?.Pause();
+        _monitorVideoPlayer?.Pause();
         _audioPlayer?.Pause();
         _output.PauseFade();
+        _monitor?.PauseFade();
         _isPaused = true;
     }
 
@@ -117,7 +131,9 @@ public sealed class PlaybackCoordinator
         }
         if (!_fadeStarted) _fadeTimer?.Start();
         _output.ResumeFade();
+        _monitor?.ResumeFade();
         _videoPlayer?.Play();
+        _monitorVideoPlayer?.Play();
         _audioPlayer?.Play();
     }
     private void PlayAudio()
@@ -150,7 +166,9 @@ public sealed class PlaybackCoordinator
         _fadeTimer = null;
         _fadeStarted = false;
         DisposePlayer(ref _videoPlayer);
+        DisposePlayer(ref _monitorVideoPlayer);
         _output.ResetFade();
+        _monitor?.ResetFade();
         if (_visualPlaylist.Current.Kind == MediaKind.Video)
             PlayVideo(_visualPlaylist.Current);
         else
@@ -162,7 +180,14 @@ public sealed class PlaybackCoordinator
         if (_scheme is null || _visualPlaylist is null) return;
         _videoPlayer = CreatePlayer(asset, false, _scheme.HasIndependentAudio);
         _videoPlayer.MediaEnded += OnVideoEnded;
+        _videoPlayer.PlaybackSession.PositionChanged += OnVideoPositionChanged;
+        VideoProgressChanged?.Invoke(new VideoProgress(TimeSpan.Zero, _videoPlayer.PlaybackSession.NaturalDuration));
         _output.ShowVideo(_videoPlayer);
+        if (_monitor is not null)
+        {
+            _monitorVideoPlayer = CreatePlayer(asset, false, muted: true);
+            _monitor.ShowVideo(_monitorVideoPlayer);
+        }
         if (_visualPlaylist.IsLast && !_scheme.IsLooping && _scheme.EndBehavior == VideoEndBehavior.FadeToBlack)
         {
             _fadeTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
@@ -170,12 +195,15 @@ public sealed class PlaybackCoordinator
             _fadeTimer.Start();
         }
         _videoPlayer.Play();
+        _monitorVideoPlayer?.Play();
     }
 
     private void PlayImage()
     {
         if (_visualPlaylist is null || _scheme is null) return;
         _output.ShowImage(_visualPlaylist.Current.Path);
+        _monitor?.ShowImage(_visualPlaylist.Current.Path);
+        VideoProgressChanged?.Invoke(null);
         if (_visualPlaylist.IsLast && !_scheme.IsLooping) return;
         StartVisualTimer(_visualPlaylist.Interval);
     }
@@ -216,6 +244,7 @@ public sealed class PlaybackCoordinator
         if (fade is not TimeSpan duration) return;
         _fadeStarted = true;
         _output.BeginFade(duration);
+        _monitor?.BeginFade(duration);
         _fadeTimer?.Stop();
     }
 
@@ -228,6 +257,11 @@ public sealed class PlaybackCoordinator
             {
                 sender.PlaybackSession.Position = TimeSpan.Zero;
                 sender.Play();
+                if (_monitorVideoPlayer is not null)
+                {
+                    _monitorVideoPlayer.PlaybackSession.Position = TimeSpan.Zero;
+                    _monitorVideoPlayer.Play();
+                }
                 return;
             }
             if (_visualPlaylist.MoveNext() is not null)
@@ -235,16 +269,38 @@ public sealed class PlaybackCoordinator
                 PlayCurrentVisual();
                 return;
             }
+            VideoProgressChanged?.Invoke(null);
             if (_scheme?.EndBehavior == VideoEndBehavior.FadeToBlack)
+            {
                 _output.ShowBlackAfterFade();
+                _monitor?.ShowBlackAfterFade();
+            }
             else
+            {
                 _output.HoldLastFrame();
+                _monitor?.HoldLastFrame();
+            }
         });
     }
 
     private void OnMediaFailed(MediaPlayer sender, MediaPlayerFailedEventArgs args)
     {
-        DispatchToOutput(() => ErrorOccurred?.Invoke($"媒体播放失败：{args.ErrorMessage}"));
+        DispatchToOutput(() =>
+        {
+            if (ReferenceEquals(sender, _videoPlayer)) VideoProgressChanged?.Invoke(null);
+            ErrorOccurred?.Invoke($"媒体播放失败：{args.ErrorMessage}");
+        });
+    }
+
+    private void OnVideoPositionChanged(MediaPlaybackSession sender, object args)
+    {
+        var position = sender.Position;
+        var duration = sender.NaturalDuration;
+        DispatchToOutput(() =>
+        {
+            if (!ReferenceEquals(sender, _videoPlayer?.PlaybackSession)) return;
+            VideoProgressChanged?.Invoke(new VideoProgress(position, duration));
+        });
     }
 
     private void DispatchToOutput(Action action)

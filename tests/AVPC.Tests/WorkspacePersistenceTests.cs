@@ -16,7 +16,9 @@ public sealed class WorkspacePersistenceTests
             Name = "混合方案",
             IsLooping = true,
             ImageDurationSeconds = 8,
-            EndBehavior = VideoEndBehavior.FadeToBlack
+            EndBehavior = VideoEndBehavior.FadeToBlack,
+            PlaybackVolume = 0.65,
+            SystemVolume = 0.4
         };
         scheme.AppendVisual(image);
         scheme.AppendVisual(video);
@@ -36,6 +38,8 @@ public sealed class WorkspacePersistenceTests
         Assert.Equal(62.5, restoredWorkspace.Media.Single(item => item.Path == video.Path).DurationSeconds);
         Assert.Equal(8, restored.ImageDurationSeconds);
         Assert.Equal(VideoEndBehavior.FadeToBlack, restored.EndBehavior);
+        Assert.Equal(0.65, restored.PlaybackVolume);
+        Assert.Equal(0.4, restored.SystemVolume);
         Assert.Contains("\"Visuals\"", json);
         Assert.Contains("\"DurationSeconds\"", json);
         Assert.DoesNotContain("\"Video\"", json);

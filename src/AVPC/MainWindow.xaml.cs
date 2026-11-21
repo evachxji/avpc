@@ -4,7 +4,9 @@ using AVPC.Services;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Xaml.Input;
 using Windows.ApplicationModel.DataTransfer;
@@ -13,7 +15,7 @@ using Windows.Media.Playback;
 
 namespace AVPC;
 
-public partial class MainWindow : Window
+public partial class MainWindow : Window, IPlaybackSurface
 {
     private readonly ObservableCollection<MediaLibraryItem> _mediaItems = [];
     private readonly ObservableCollection<SchemeCardViewModel> _schemes = [];
@@ -22,6 +24,7 @@ public partial class MainWindow : Window
     private bool _loadingEditor;
     private PlaybackWindow? _outputWindow;
     private PlaybackCoordinator? _coordinator;
+    private Storyboard? _outputMonitorFadeStoryboard;
     private bool _isOutputPaused;
     private MediaPlayer? _previewVideo;
     private MediaPlayer? _previewAudio;
@@ -35,10 +38,20 @@ public partial class MainWindow : Window
     private bool _isPreviewPaused;
     private bool _previewAtItemEnd;
     private bool _previewWasPausedBeforeSeeking;
+    private uint _previewSeekPointerId;
     private readonly System.Diagnostics.Stopwatch _previewImageClock = new();
     private TimeSpan _previewImageOffset;
     private readonly DispatcherTimer _saveTimer = new();
+    private Storyboard? _mediaSidebarStoryboard;
+    private bool _isMediaSidebarCollapsed;
     private bool _loadingWorkspace;
+    private bool _isMediaMarqueeSelecting;
+    private uint _mediaMarqueePointerId;
+    private Windows.Foundation.Point _mediaMarqueeStart;
+    private IReadOnlyList<MediaLibraryItem> _mediaMarqueeBaseSelection = [];
+    private MediaLibraryItem? _contextMediaItem;
+    private bool _updatingSchemeVolumes;
+    private SystemVolumeService? _systemVolumeService;
 
     public MainWindow()
     {
@@ -52,10 +65,24 @@ public partial class MainWindow : Window
         SchemeList.ItemsSource = _schemes;
         OutputDisplaySelector.DisplayMemberPath = "Name";
         AppWindow.Closing += OnClosing;
-        PreviewProgress.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler(PreviewSeekStarted), true);
-        PreviewProgress.AddHandler(UIElement.PointerReleasedEvent, new PointerEventHandler(PreviewSeekCompleted), true);
-        PreviewProgress.AddHandler(UIElement.PointerCanceledEvent, new PointerEventHandler(PreviewSeekCompleted), true);
+        PreviewProgress.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler(PreviewSeekPressed), true);
+        PreviewProgress.AddHandler(UIElement.PointerMovedEvent, new PointerEventHandler(PreviewSeekMoved), true);
+        PreviewProgress.AddHandler(UIElement.PointerReleasedEvent, new PointerEventHandler(PreviewSeekReleased), true);
+        PreviewProgress.AddHandler(UIElement.PointerCanceledEvent, new PointerEventHandler(PreviewSeekCanceled), true);
+        PreviewProgress.AddHandler(UIElement.PointerCaptureLostEvent, new PointerEventHandler(PreviewSeekCaptureLost), true);
+        PreviewProgress.ValueChanged += PreviewSeekValueChanged;
         PreviewVolume.ValueChanged += OnPreviewVolumeChanged;
+        SystemVolumeSlider.ValueChanged += OnSystemVolumeChanged;
+        try
+        {
+            _systemVolumeService = new SystemVolumeService();
+            SystemVolumeSlider.Value = _systemVolumeService.Volume;
+        }
+        catch (Exception ex)
+        {
+            SystemVolumeSlider.IsEnabled = false;
+            ShowError("无法读取系统音量", ex);
+        }
         _saveTimer.Interval = TimeSpan.FromMilliseconds(400);
         _saveTimer.Tick += (sender, args) => SaveWorkspace();
     }
@@ -73,7 +100,71 @@ public partial class MainWindow : Window
             ?? _displays[0];
     }
 
-    private void RefreshDisplaysClicked(object sender, RoutedEventArgs e) => InitializeDisplays();
+    private void RefreshDisplaysClicked(object sender, RoutedEventArgs e)
+    {
+        if (!OutputDisplayPolicy.CanSwitch(_queue.IsPlaying)) return;
+        InitializeDisplays();
+    }
+
+    private void ToggleMediaSidebarClicked(object sender, RoutedEventArgs e)
+    {
+        if (_mediaSidebarStoryboard is not null) return;
+
+        const double expandedWidth = 270;
+        const double collapsedWidth = 48;
+        var collapsing = !_isMediaSidebarCollapsed;
+        _isMediaSidebarCollapsed = collapsing;
+
+        MediaSidebarContent.Visibility = Visibility.Visible;
+        MediaSidebarCollapsedContent.Visibility = Visibility.Visible;
+        if (collapsing)
+            MediaSidebarCollapsedContent.Opacity = 0;
+        else
+            MediaSidebarContent.Opacity = 0;
+
+        var easing = new CubicEase { EasingMode = EasingMode.EaseInOut };
+        var storyboard = new Storyboard();
+        var widthAnimation = new DoubleAnimation
+        {
+            From = MediaSidebar.ActualWidth,
+            To = collapsing ? collapsedWidth : expandedWidth,
+            Duration = TimeSpan.FromMilliseconds(260),
+            EnableDependentAnimation = true,
+            EasingFunction = easing
+        };
+        Storyboard.SetTarget(widthAnimation, MediaSidebar);
+        Storyboard.SetTargetProperty(widthAnimation, nameof(FrameworkElement.Width));
+        storyboard.Children.Add(widthAnimation);
+
+        AddSidebarOpacityAnimation(storyboard, MediaSidebarContent, collapsing ? 0 : 1, easing);
+        AddSidebarOpacityAnimation(storyboard, MediaSidebarCollapsedContent, collapsing ? 1 : 0, easing);
+        storyboard.Completed += (_, _) =>
+        {
+            MediaSidebar.Width = collapsing ? collapsedWidth : expandedWidth;
+            MediaSidebarContent.Opacity = collapsing ? 0 : 1;
+            MediaSidebarContent.Visibility = collapsing ? Visibility.Collapsed : Visibility.Visible;
+            MediaSidebarCollapsedContent.Opacity = collapsing ? 1 : 0;
+            MediaSidebarCollapsedContent.Visibility = collapsing ? Visibility.Visible : Visibility.Collapsed;
+            _mediaSidebarStoryboard = null;
+        };
+
+        _mediaSidebarStoryboard = storyboard;
+        storyboard.Begin();
+    }
+
+    private static void AddSidebarOpacityAnimation(Storyboard storyboard, UIElement target, double to, EasingFunctionBase easing)
+    {
+        var animation = new DoubleAnimation
+        {
+            From = target.Opacity,
+            To = to,
+            Duration = TimeSpan.FromMilliseconds(180),
+            EasingFunction = easing
+        };
+        Storyboard.SetTarget(animation, target);
+        Storyboard.SetTargetProperty(animation, nameof(UIElement.Opacity));
+        storyboard.Children.Add(animation);
+    }
 
     private SchemeCardViewModel? SelectedCard => SchemeList.SelectedItem as SchemeCardViewModel;
     private PlaybackScheme? SelectedScheme => SelectedCard?.Scheme;
@@ -107,6 +198,206 @@ public partial class MainWindow : Window
         MediaList.ItemsSource = _mediaItems
             .Where(item => query.Length == 0 || item.Asset.DisplayName.Contains(query, StringComparison.OrdinalIgnoreCase))
             .ToList();
+    }
+
+    private void MediaListRightTapped(object sender, RightTappedRoutedEventArgs e)
+    {
+        if (FindVisualAncestor<ListViewItem>(e.OriginalSource as DependencyObject)?.Content is MediaLibraryItem item)
+        {
+            _contextMediaItem = item;
+            if (!MediaList.SelectedItems.Contains(item))
+            {
+                MediaList.SelectedItems.Clear();
+                MediaList.SelectedItem = item;
+            }
+        }
+        else
+        {
+            _contextMediaItem = null;
+            if (MediaList.SelectedItems.Count == 0) return;
+        }
+
+        MediaContextFlyout.ShowAt(MediaList, new FlyoutShowOptions { Position = e.GetPosition(MediaList) });
+        e.Handled = true;
+    }
+
+    private void MediaContextMenuOpening(object sender, object e)
+    {
+        var count = MediaList.SelectedItems.OfType<MediaLibraryItem>().Count();
+        OpenMediaFolderMenuItem.IsEnabled = _contextMediaItem is not null;
+        DeleteMediaMenuItem.Text = count > 1 ? $"删除 {count} 个素材" : "删除素材";
+        DeleteMediaMenuItem.IsEnabled = count > 0;
+    }
+
+    private void OpenMediaFolderClicked(object sender, RoutedEventArgs e)
+    {
+        if (_contextMediaItem is not { } item) return;
+        if (!File.Exists(item.Asset.Path))
+        {
+            ShowMessage("素材文件不存在，无法在文件夹中定位。", InfoBarSeverity.Warning);
+            return;
+        }
+
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "explorer.exe",
+                UseShellExecute = false,
+                Arguments = ExplorerSelection.BuildArguments(item.Asset.Path)
+            });
+        }
+        catch (Exception ex)
+        {
+            ShowError("无法打开素材所在文件夹", ex);
+        }
+    }
+
+    private async void DeleteSelectedMediaClicked(object sender, RoutedEventArgs e)
+    {
+        if (!EnsureEditable()) return;
+        var items = MediaList.SelectedItems.OfType<MediaLibraryItem>().ToList();
+        if (items.Count == 0) return;
+
+        var target = items.Count == 1 ? $"“{items[0].Asset.DisplayName}”" : $"选中的 {items.Count} 个素材";
+        var dialog = new ContentDialog
+        {
+            XamlRoot = Content.XamlRoot,
+            Title = "删除素材",
+            Content = $"确定删除{target}吗？已分配到方案的素材会一并移除，但不会删除磁盘文件。",
+            PrimaryButtonText = "删除",
+            CloseButtonText = "取消",
+            DefaultButton = ContentDialogButton.Close
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+
+        StopPreview();
+        foreach (var card in _schemes)
+        {
+            foreach (var item in items)
+                card.Scheme.RemoveMedia(item.Asset);
+        }
+        foreach (var item in items)
+            _mediaItems.Remove(item);
+
+        RefreshMediaView();
+        RefreshQueue();
+        LoadEditor();
+        StatusText.Text = items.Count == 1 ? $"已删除素材 {items[0].Asset.DisplayName}" : $"已删除 {items.Count} 个素材";
+    }
+
+    private void MediaListPointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        var point = e.GetCurrentPoint(MediaList);
+        if (point.Properties.IsRightButtonPressed ||
+            FindVisualAncestor<ListViewItem>(e.OriginalSource as DependencyObject) is not null ||
+            FindVisualAncestor<ScrollBar>(e.OriginalSource as DependencyObject) is not null ||
+            !MediaList.CapturePointer(e.Pointer))
+            return;
+
+        _isMediaMarqueeSelecting = true;
+        _mediaMarqueePointerId = e.Pointer.PointerId;
+        _mediaMarqueeStart = point.Position;
+        var additive = (e.KeyModifiers & (Windows.System.VirtualKeyModifiers.Control | Windows.System.VirtualKeyModifiers.Shift)) != 0;
+        _mediaMarqueeBaseSelection = additive
+            ? MediaList.SelectedItems.OfType<MediaLibraryItem>().ToList()
+            : [];
+        if (!additive) MediaList.SelectedItems.Clear();
+        UpdateMediaSelectionBox(_mediaMarqueeStart, _mediaMarqueeStart);
+        e.Handled = true;
+    }
+
+    private void MediaListPointerMoved(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_isMediaMarqueeSelecting || e.Pointer.PointerId != _mediaMarqueePointerId) return;
+        var position = e.GetCurrentPoint(MediaList).Position;
+        UpdateMediaSelectionBox(_mediaMarqueeStart, position);
+        UpdateMediaMarqueeSelection(_mediaMarqueeStart, position);
+        e.Handled = true;
+    }
+
+    private void MediaListPointerReleased(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_isMediaMarqueeSelecting || e.Pointer.PointerId != _mediaMarqueePointerId) return;
+        FinishMediaMarquee();
+        MediaList.ReleasePointerCapture(e.Pointer);
+        e.Handled = true;
+    }
+
+    private void MediaListPointerCanceled(object sender, PointerRoutedEventArgs e)
+    {
+        if (e.Pointer.PointerId == _mediaMarqueePointerId) FinishMediaMarquee();
+    }
+
+    private void MediaListPointerCaptureLost(object sender, PointerRoutedEventArgs e)
+    {
+        if (e.Pointer.PointerId == _mediaMarqueePointerId) FinishMediaMarquee();
+    }
+
+    private void FinishMediaMarquee()
+    {
+        if (!_isMediaMarqueeSelecting) return;
+        _isMediaMarqueeSelecting = false;
+        MediaSelectionBox.Visibility = Visibility.Collapsed;
+    }
+
+    private void UpdateMediaSelectionBox(Windows.Foundation.Point start, Windows.Foundation.Point end)
+    {
+        var left = Math.Min(start.X, end.X);
+        var top = Math.Min(start.Y, end.Y);
+        Canvas.SetLeft(MediaSelectionBox, left);
+        Canvas.SetTop(MediaSelectionBox, top);
+        MediaSelectionBox.Width = Math.Abs(end.X - start.X);
+        MediaSelectionBox.Height = Math.Abs(end.Y - start.Y);
+        MediaSelectionBox.Visibility = Visibility.Visible;
+    }
+
+    private void UpdateMediaMarqueeSelection(Windows.Foundation.Point start, Windows.Foundation.Point end)
+    {
+        var bounds = new Windows.Foundation.Rect(
+            Math.Min(start.X, end.X),
+            Math.Min(start.Y, end.Y),
+            Math.Abs(end.X - start.X),
+            Math.Abs(end.Y - start.Y));
+        var selection = new List<MediaLibraryItem>(_mediaMarqueeBaseSelection);
+        foreach (var item in MediaList.Items.OfType<MediaLibraryItem>())
+        {
+            if (MediaList.ContainerFromItem(item) is not ListViewItem container || container.ActualWidth == 0 || container.ActualHeight == 0)
+                continue;
+            var itemBounds = container.TransformToVisual(MediaList)
+                .TransformBounds(new Windows.Foundation.Rect(0, 0, container.ActualWidth, container.ActualHeight));
+            var overlaps = bounds.X <= itemBounds.X + itemBounds.Width &&
+                           bounds.X + bounds.Width >= itemBounds.X &&
+                           bounds.Y <= itemBounds.Y + itemBounds.Height &&
+                           bounds.Y + bounds.Height >= itemBounds.Y;
+            if (overlaps && !selection.Contains(item)) selection.Add(item);
+        }
+
+        foreach (var item in MediaList.SelectedItems.OfType<MediaLibraryItem>().Where(item => !selection.Contains(item)).ToList())
+            MediaList.SelectedItems.Remove(item);
+        foreach (var item in selection.Where(item => !MediaList.SelectedItems.Contains(item)))
+            MediaList.SelectedItems.Add(item);
+    }
+
+    private static T? FindVisualAncestor<T>(DependencyObject? element) where T : DependencyObject
+    {
+        while (element is not null)
+        {
+            if (element is T match) return match;
+            element = VisualTreeHelper.GetParent(element);
+        }
+        return null;
+    }
+
+    private static T? FindVisualDescendant<T>(DependencyObject element) where T : DependencyObject
+    {
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(element); index++)
+        {
+            var child = VisualTreeHelper.GetChild(element, index);
+            if (child is T match) return match;
+            if (FindVisualDescendant<T>(child) is T descendant) return descendant;
+        }
+        return null;
     }
 
     private void MediaDragStarting(object sender, DragItemsStartingEventArgs e)
@@ -260,7 +551,12 @@ public partial class MainWindow : Window
     private void AddSchemeClicked(object sender, RoutedEventArgs e)
     {
         if (!EnsureEditable()) return;
-        var scheme = new PlaybackScheme { Name = $"方案 {_schemes.Count + 1:00}" };
+        var scheme = new PlaybackScheme
+        {
+            Name = $"方案 {_schemes.Count + 1:00}",
+            PlaybackVolume = PreviewVolume.Value,
+            SystemVolume = SystemVolumeSlider.Value
+        };
         var card = CreateSchemeCard(scheme);
         _schemes.Add(card);
         RefreshQueue();
@@ -299,8 +595,13 @@ public partial class MainWindow : Window
     private void SchemeSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         LoadEditor();
+        UpdateSchemeHighlight();
         if (!_queue.IsPlaying)
+        {
+            if (_queue.CurrentScheme is null && SelectedScheme is PlaybackScheme scheme)
+                LoadSchemeVolumes(scheme);
             StopPreview();
+        }
     }
 
     private void LoadEditor()
@@ -329,16 +630,35 @@ public partial class MainWindow : Window
 
     private void SchemeNameDoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
     {
-        if (!EnsureEditable() || (sender as FrameworkElement)?.DataContext is not SchemeCardViewModel card) return;
+        if ((sender as FrameworkElement)?.DataContext is not SchemeCardViewModel card) return;
+        BeginSchemeRename(card);
+        e.Handled = true;
+    }
+
+    private void SchemeListRightTapped(object sender, RightTappedRoutedEventArgs e)
+    {
+        if (FindVisualAncestor<ListViewItem>(e.OriginalSource as DependencyObject)?.Content is not SchemeCardViewModel card) return;
         SchemeList.SelectedItem = card;
-        card.BeginRename();
-        if (sender is TextBlock textBlock && textBlock.Parent is Grid grid &&
-            grid.Children.OfType<TextBox>().FirstOrDefault() is TextBox editor)
+        SchemeContextFlyout.ShowAt(SchemeList, new FlyoutShowOptions { Position = e.GetPosition(SchemeList) });
+        e.Handled = true;
+    }
+
+    private void EditSchemeNameMenuClicked(object sender, RoutedEventArgs e)
+    {
+        if (SelectedCard is SchemeCardViewModel card) BeginSchemeRename(card);
+    }
+
+    private void BeginSchemeRename(SchemeCardViewModel card)
+    {
+        SchemeList.SelectedItem = card;
+        if (!card.IsRenaming) card.BeginRename();
+        DispatcherQueue.TryEnqueue(() =>
         {
+            if (SchemeList.ContainerFromItem(card) is not ListViewItem container ||
+                FindVisualDescendant<TextBox>(container) is not TextBox editor) return;
             editor.Focus(FocusState.Programmatic);
             editor.SelectAll();
-        }
-        e.Handled = true;
+        });
     }
 
     private void SchemeNameEditorLostFocus(object sender, RoutedEventArgs e)
@@ -388,7 +708,7 @@ public partial class MainWindow : Window
     private void LoopChanged(object sender, RoutedEventArgs e)
     {
         var looping = LoopCheck.IsChecked == true;
-        if (!_loadingEditor && SelectedScheme is not null) SelectedScheme.IsLooping = looping;
+        if (!_loadingEditor && SelectedCard is SchemeCardViewModel card) card.IsLooping = looping;
         EndBehaviorSelector.IsEnabled = !looping;
         ScheduleSave();
     }
@@ -464,6 +784,7 @@ public partial class MainWindow : Window
         if (!_queue.IsPlaying) _queue = new PlaybackQueue(_schemes.Select(card => card.Scheme));
         ScheduleSave();
         SelectedCard?.Refresh(_mediaItems);
+        UpdateSchemeHighlight();
     }
 
     private void UpdateSchemeCount() => SchemeCountText.Text = $"播放方案 · {_schemes.Count} 套";
@@ -477,6 +798,7 @@ public partial class MainWindow : Window
 
     private void OutputDisplayChanged(object sender, SelectionChangedEventArgs e)
     {
+        if (!OutputDisplayPolicy.CanSwitch(_queue.IsPlaying)) return;
         if (_outputWindow?.AppWindow.IsVisible == true && OutputDisplaySelector.SelectedItem is DisplayOption display)
             DisplayService.ShowFullScreen(_outputWindow, display.Area);
     }
@@ -709,7 +1031,7 @@ public partial class MainWindow : Window
                 StatusText.Text = "全部方案已展示完毕";
                 return;
             }
-            PlayOutputScheme(scheme, autoPlay: false);
+            PlayOutputScheme(scheme, autoPlay: true);
         }
         catch (Exception ex)
         {
@@ -726,10 +1048,13 @@ public partial class MainWindow : Window
         }
         StopPreview();
         EnsureOutputWindow();
+        _coordinator!.Stop();
+        // 先停止旧方案，避免新方案音量在切换瞬间作用到仍在播放的旧音频。
+        LoadSchemeVolumes(scheme);
         if (autoPlay)
-            _coordinator!.Play(scheme);
+            _coordinator.Play(scheme);
         else
-            _coordinator!.Prepare(scheme);
+            _coordinator.Prepare(scheme);
         _isOutputPaused = !autoPlay;
         UpdateOutputMode();
         StatusText.Text = autoPlay
@@ -771,6 +1096,17 @@ public partial class MainWindow : Window
     private void UpdateOutputMode()
     {
         var outputVisible = _outputWindow?.AppWindow.IsVisible == true;
+        OutputMonitorPanel.Visibility = outputVisible ? Visibility.Visible : Visibility.Collapsed;
+        SchemePreviewContent.Visibility = outputVisible ? Visibility.Collapsed : Visibility.Visible;
+        SchemeEditorScroll.Visibility = outputVisible ? Visibility.Collapsed : Visibility.Visible;
+        var canReorderSchemes = SchemeReorderPolicy.CanReorder(outputVisible);
+        SchemeList.CanDragItems = canReorderSchemes;
+        SchemeList.CanReorderItems = canReorderSchemes;
+        var canSwitchOutputDisplay = OutputDisplayPolicy.CanSwitch(_queue.IsPlaying);
+        OutputDisplaySelector.IsEnabled = canSwitchOutputDisplay;
+        RefreshDisplayButton.IsEnabled = canSwitchOutputDisplay;
+        UpdateSchemeHighlight();
+        UpdatePreviewFrameSizes();
         PlayPauseOutputButton.Content = !_queue.IsPlaying ? "▶ 开始" : _isOutputPaused ? "▶ 继续" : "⏸ 暂停";
         ModeText.Text = _queue.IsPlaying
             ? _isOutputPaused ? "●  正式输出已暂停" : "●  正式输出中"
@@ -811,10 +1147,11 @@ public partial class MainWindow : Window
         if (_outputWindow is null)
         {
             _outputWindow = new PlaybackWindow();
-            _coordinator = new PlaybackCoordinator(_outputWindow);
+            _coordinator = new PlaybackCoordinator(_outputWindow, this);
             _coordinator.Volume = PreviewVolume.Value;
             _coordinator.PlaybackRate = SelectedPlaybackRate;
             _coordinator.ErrorOccurred += message => ShowMessage(message, InfoBarSeverity.Error);
+            _coordinator.VideoProgressChanged += UpdateOutputVideoProgress;
             _outputWindow.Closed += (sender, args) =>
             {
                 if (!ReferenceEquals(sender, _outputWindow)) return;
@@ -825,14 +1162,98 @@ public partial class MainWindow : Window
                 UpdateOutputMode();
             };
         }
+        if (_outputWindow.AppWindow.IsVisible) return;
         DisplayService.ShowFullScreen(_outputWindow, SelectedOutputDisplay);
         _outputWindow.Activate();
     }
 
     private void PreviewPanelSizeChanged(object sender, SizeChangedEventArgs e)
     {
-        var contentWidth = Math.Max(0, e.NewSize.Width - 38);
-        PreviewFrame.Height = Math.Clamp(contentWidth * 9 / 16, 130, 260);
+        UpdatePreviewFrameSizes(e.NewSize.Width);
+    }
+
+    private void UpdatePreviewFrameSizes(double panelWidth = double.NaN)
+    {
+        var width = double.IsNaN(panelWidth) ? PreviewPanel.ActualWidth : panelWidth;
+        var contentWidth = Math.Max(0, width - 38);
+        PreviewFrame.Height = contentWidth * 9 / 16;
+    }
+
+    private void UpdateSchemeHighlight()
+    {
+        var outputVisible = _outputWindow?.AppWindow.IsVisible == true;
+        var highlightedScheme = SchemeHighlightResolver.Resolve(_queue.CurrentScheme, SelectedScheme, outputVisible);
+        foreach (var card in _schemes)
+            card.SetHighlighted(ReferenceEquals(card.Scheme, highlightedScheme));
+    }
+
+    private void UpdateOutputVideoProgress(PlaybackCoordinator.VideoProgress? progress)
+    {
+        if (progress is not { } value)
+        {
+            OutputVideoProgress.Visibility = Visibility.Collapsed;
+            OutputVideoProgress.Value = 0;
+            OutputVideoProgress.IsIndeterminate = false;
+            return;
+        }
+
+        OutputVideoProgress.Visibility = Visibility.Visible;
+        OutputVideoProgress.Maximum = Math.Max(0, value.Duration.TotalSeconds);
+        OutputVideoProgress.Value = Math.Clamp(value.Position.TotalSeconds, 0, OutputVideoProgress.Maximum);
+        OutputVideoProgress.IsIndeterminate = value.Duration <= TimeSpan.Zero;
+    }
+
+    void IPlaybackSurface.ShowVideo(MediaPlayer player)
+    {
+        OutputMonitorView.SetMediaPlayer(player);
+        OutputMonitorView.Visibility = Visibility.Visible;
+        OutputMonitorImage.Source = null;
+        OutputMonitorFadeOverlay.Opacity = 0;
+    }
+
+    void IPlaybackSurface.ShowImage(string path)
+    {
+        OutputMonitorView.SetMediaPlayer(null);
+        OutputMonitorView.Visibility = Visibility.Collapsed;
+        OutputMonitorImage.Source = new BitmapImage(new Uri(path));
+        OutputMonitorFadeOverlay.Opacity = 0;
+    }
+
+    void IPlaybackSurface.ResetFade() => ResetOutputMonitorFade();
+
+    void IPlaybackSurface.BeginFade(TimeSpan duration)
+    {
+        ResetOutputMonitorFade();
+        _outputMonitorFadeStoryboard = PlaybackWindow.FadeToBlack(OutputMonitorFadeOverlay, duration);
+    }
+
+    void IPlaybackSurface.PauseFade() => _outputMonitorFadeStoryboard?.Pause();
+
+    void IPlaybackSurface.ResumeFade() => _outputMonitorFadeStoryboard?.Resume();
+
+    void IPlaybackSurface.HoldLastFrame() => OutputMonitorFadeOverlay.Opacity = 0;
+
+    void IPlaybackSurface.ShowBlackAfterFade()
+    {
+        _outputMonitorFadeStoryboard?.Stop();
+        _outputMonitorFadeStoryboard = null;
+        OutputMonitorFadeOverlay.Opacity = 1;
+    }
+
+    void IPlaybackSurface.Clear()
+    {
+        ResetOutputMonitorFade();
+        OutputMonitorView.SetMediaPlayer(null);
+        OutputMonitorView.Visibility = Visibility.Visible;
+        OutputMonitorImage.Source = null;
+        OutputMonitorFadeOverlay.Opacity = 1;
+    }
+
+    private void ResetOutputMonitorFade()
+    {
+        _outputMonitorFadeStoryboard?.Stop();
+        _outputMonitorFadeStoryboard = null;
+        OutputMonitorFadeOverlay.Opacity = 0;
     }
 
     private void VisualItemClicked(object sender, ItemClickEventArgs e)
@@ -898,7 +1319,7 @@ public partial class MainWindow : Window
         var asset = _previewPlaylist.Current;
         if (asset.Kind == MediaKind.Video)
         {
-            var player = CreatePreviewPlayer(asset, false, _previewScheme.HasIndependentAudio);
+            var player = CreatePreviewPlayer(false, _previewScheme.HasIndependentAudio);
             _previewVideo = player;
             player.MediaEnded += OnPreviewVideoEnded;
             PreviewView.SetMediaPlayer(player);
@@ -933,9 +1354,11 @@ public partial class MainWindow : Window
                         StartPreviewTimer();
                     }
                 };
+                player.Source = CreatePreviewSource(asset);
             }
             else
             {
+                player.Source = CreatePreviewSource(asset);
                 player.Play();
                 StartPreviewTimer();
             }
@@ -961,11 +1384,10 @@ public partial class MainWindow : Window
         PreviewButtonIcon.Symbol = autoPlay ? Symbol.Pause : Symbol.Play;
     }
 
-    private MediaPlayer CreatePreviewPlayer(MediaAsset asset, bool loop, bool muted)
+    private MediaPlayer CreatePreviewPlayer(bool loop, bool muted)
     {
         var player = new MediaPlayer
         {
-            Source = MediaSource.CreateFromUri(new Uri(asset.Path)),
             IsLoopingEnabled = loop,
             IsMuted = muted,
             Volume = PreviewVolume.Value
@@ -974,12 +1396,16 @@ public partial class MainWindow : Window
         return player;
     }
 
+    private static MediaSource CreatePreviewSource(MediaAsset asset) =>
+        MediaSource.CreateFromUri(new Uri(asset.Path));
+
     private void PlayPreviewAudio()
     {
         if (_previewAudioPlaylist is null) return;
         DisposePreviewPlayer(ref _previewAudio);
-        _previewAudio = CreatePreviewPlayer(_previewAudioPlaylist.Current, false, false);
+        _previewAudio = CreatePreviewPlayer(false, false);
         _previewAudio.MediaEnded += OnPreviewAudioEnded;
+        _previewAudio.Source = CreatePreviewSource(_previewAudioPlaylist.Current);
         _previewAudio.Play();
     }
 
@@ -1054,18 +1480,69 @@ public partial class MainWindow : Window
         else FinishPreviewAtEnd();
     }
 
-    private void PreviewSeekStarted(object sender, PointerRoutedEventArgs e)
+    private void PreviewSeekPressed(object sender, PointerRoutedEventArgs e)
     {
-        _isPreviewSeeking = _previewTimeline is not null && _previewPlaylist is not null;
+        if (!e.GetCurrentPoint(PreviewProgress).Properties.IsLeftButtonPressed ||
+            _previewTimeline is null || _previewPlaylist is null)
+            return;
+
+        _isPreviewSeeking = true;
+        _previewSeekPointerId = e.Pointer.PointerId;
         if (!_isPreviewSeeking) return;
         _previewWasPausedBeforeSeeking = _isPreviewPaused;
         _previewVideo?.Pause();
         _previewAudio?.Pause();
         _previewTimer?.Stop();
         _previewImageClock.Stop();
+        PreviewProgress.CapturePointer(e.Pointer);
+        UpdatePreviewProgressFromPointer(e.GetCurrentPoint(PreviewProgress).Position);
+        e.Handled = true;
     }
 
-    private void PreviewSeekCompleted(object sender, PointerRoutedEventArgs e)
+    private void PreviewSeekMoved(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_isPreviewSeeking || e.Pointer.PointerId != _previewSeekPointerId) return;
+        UpdatePreviewProgressFromPointer(e.GetCurrentPoint(PreviewProgress).Position);
+        e.Handled = true;
+    }
+
+    private void PreviewSeekReleased(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_isPreviewSeeking || e.Pointer.PointerId != _previewSeekPointerId) return;
+        UpdatePreviewProgressFromPointer(e.GetCurrentPoint(PreviewProgress).Position);
+        PreviewProgress.ReleasePointerCapture(e.Pointer);
+        PreviewSeekCompleted();
+        e.Handled = true;
+    }
+
+    private void PreviewSeekCanceled(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_isPreviewSeeking || e.Pointer.PointerId != _previewSeekPointerId) return;
+        PreviewSeekCompleted();
+        e.Handled = true;
+    }
+
+    private void PreviewSeekCaptureLost(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_isPreviewSeeking || e.Pointer.PointerId != _previewSeekPointerId) return;
+        PreviewSeekCompleted();
+    }
+
+    private void UpdatePreviewProgressFromPointer(Windows.Foundation.Point position)
+    {
+        if (PreviewProgress.ActualWidth <= 0 || PreviewProgress.Maximum <= PreviewProgress.Minimum) return;
+        var ratio = Math.Clamp(position.X / PreviewProgress.ActualWidth, 0, 1);
+        PreviewProgress.Value = PreviewProgress.Minimum + ratio * (PreviewProgress.Maximum - PreviewProgress.Minimum);
+    }
+
+    private void PreviewSeekValueChanged(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
+    {
+        if (!_isPreviewSeeking || _previewTimeline is null) return;
+        var total = _previewTimeline.HasCompleteDuration ? FormatPreviewTime(_previewTimeline.TotalDuration) : "--:--";
+        PreviewTimeText.Text = $"{FormatPreviewTime(TimeSpan.FromSeconds(e.NewValue))} / {total}";
+    }
+
+    private void PreviewSeekCompleted()
     {
         if (!_isPreviewSeeking || _previewTimeline is null || _previewPlaylist is null) return;
         _isPreviewSeeking = false;
@@ -1073,10 +1550,78 @@ public partial class MainWindow : Window
         var itemDuration = location.ItemEnd - location.ItemStart;
         var atEnd = location.ItemPosition >= itemDuration;
         var autoPlay = !_previewWasPausedBeforeSeeking && !atEnd;
+        if (!location.CrossesVisualBoundary(_previewPlaylist.CurrentIndex) &&
+            SeekCurrentPreviewVisual(location, autoPlay, atEnd))
+        {
+            if (autoPlay) ResumePreviewAudio();
+            else _previewAudio?.Pause();
+            return;
+        }
         _previewPlaylist.MoveTo(location.Index);
         PlayCurrentPreviewVisual(location.ItemPosition, autoPlay, atEnd);
         if (autoPlay) ResumePreviewAudio();
         else _previewAudio?.Pause();
+    }
+
+    private bool SeekCurrentPreviewVisual(VisualTimelineLocation location, bool autoPlay, bool atEnd)
+    {
+        if (_previewTimeline is null) return false;
+        _previewAtItemEnd = atEnd;
+        _isPreviewPaused = !autoPlay;
+        _previewFadeStarted = false;
+        PreviewFadeOverlay.Opacity = 0;
+
+        if (location.Asset.Kind == MediaKind.Video && _previewVideo is not null)
+        {
+            var session = _previewVideo.PlaybackSession;
+            var duration = session.NaturalDuration > TimeSpan.Zero
+                ? session.NaturalDuration
+                : TimeSpan.FromSeconds(location.Asset.DurationSeconds);
+            var target = atEnd && duration > TimeSpan.Zero
+                ? duration - TimeSpan.FromMilliseconds(80)
+                : location.ItemPosition;
+            if (target < TimeSpan.Zero) target = TimeSpan.Zero;
+            if (duration > TimeSpan.Zero && target > duration) target = duration;
+
+            _previewVideo.Position = target;
+            if (autoPlay)
+            {
+                _previewVideo.Play();
+                StartPreviewTimer();
+            }
+            else
+            {
+                _previewVideo.Pause();
+                _previewTimer?.Stop();
+            }
+
+            UpdatePreviewPosition(atEnd
+                ? location.ItemEnd
+                : _previewTimeline.GetGlobalPosition(location.Index, target));
+            PreviewButtonIcon.Symbol = autoPlay ? Symbol.Pause : Symbol.Play;
+            return true;
+        }
+
+        if (location.Asset.Kind == MediaKind.Image && PreviewImage.Source is not null)
+        {
+            _previewImageClock.Reset();
+            _previewImageOffset = location.ItemPosition;
+            if (autoPlay)
+            {
+                _previewImageClock.Start();
+                StartPreviewTimer();
+            }
+            else
+            {
+                _previewTimer?.Stop();
+            }
+
+            UpdatePreviewPosition(_previewTimeline.GetGlobalPosition(location.Index, location.ItemPosition));
+            PreviewButtonIcon.Symbol = autoPlay ? Symbol.Pause : Symbol.Play;
+            return true;
+        }
+
+        return false;
     }
 
     private void OnPreviewVideoEnded(MediaPlayer sender, object args)
@@ -1127,9 +1672,82 @@ public partial class MainWindow : Window
 
     private void OnPreviewVolumeChanged(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
     {
-        if (_previewVideo is not null) _previewVideo.Volume = e.NewValue;
-        if (_previewAudio is not null) _previewAudio.Volume = e.NewValue;
-        if (_coordinator is not null) _coordinator.Volume = e.NewValue;
+        if (_updatingSchemeVolumes) return;
+        ApplyPlaybackVolume(e.NewValue);
+        if ((_queue.CurrentScheme ?? SelectedScheme) is PlaybackScheme scheme)
+        {
+            scheme.PlaybackVolume = e.NewValue;
+            ScheduleSave();
+        }
+    }
+
+    private void OnSystemVolumeChanged(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
+    {
+        if (_updatingSchemeVolumes) return;
+        ApplySystemVolume(e.NewValue);
+        if ((_queue.CurrentScheme ?? SelectedScheme) is PlaybackScheme scheme)
+        {
+            scheme.SystemVolume = e.NewValue;
+            ScheduleSave();
+        }
+    }
+
+    private void LoadSchemeVolumes(PlaybackScheme scheme)
+    {
+        var playbackVolume = scheme.PlaybackVolume ?? PreviewVolume.Value;
+        var systemVolume = scheme.SystemVolume ?? GetCurrentSystemVolume();
+        _updatingSchemeVolumes = true;
+        try
+        {
+            PreviewVolume.Value = playbackVolume;
+            SystemVolumeSlider.Value = systemVolume;
+            scheme.PlaybackVolume = playbackVolume;
+            scheme.SystemVolume = systemVolume;
+        }
+        finally
+        {
+            _updatingSchemeVolumes = false;
+        }
+
+        ApplyPlaybackVolume(playbackVolume);
+        ApplySystemVolume(systemVolume);
+        ScheduleSave();
+    }
+
+    private void ApplyPlaybackVolume(double volume)
+    {
+        if (_previewVideo is not null) _previewVideo.Volume = volume;
+        if (_previewAudio is not null) _previewAudio.Volume = volume;
+        if (_coordinator is not null) _coordinator.Volume = volume;
+    }
+
+    private void ApplySystemVolume(double volume)
+    {
+        if (_systemVolumeService is null) return;
+        try
+        {
+            _systemVolumeService.Volume = volume;
+        }
+        catch (Exception ex)
+        {
+            ShowError("无法设置系统音量", ex);
+        }
+    }
+
+    private double GetCurrentSystemVolume()
+    {
+        if (_systemVolumeService is not null)
+        {
+            try
+            {
+                return _systemVolumeService.Volume;
+            }
+            catch (Exception ex)
+            {
+                ShowError("无法读取系统音量", ex);
+            }
+        }
+        return SystemVolumeSlider.Value;
     }
 
     private static void DisposePreviewPlayer(ref MediaPlayer? player)
@@ -1150,6 +1768,8 @@ public partial class MainWindow : Window
                 _mediaItems.Add(await MediaImportService.LoadItemAsync(asset));
             foreach (var scheme in workspace.Schemes)
             {
+                scheme.PlaybackVolume ??= PreviewVolume.Value;
+                scheme.SystemVolume ??= GetCurrentSystemVolume();
                 foreach (var asset in scheme.Visuals.Concat(scheme.Audios))
                 {
                     var restored = _mediaItems.FirstOrDefault(item => IsSameAsset(item.Asset, asset));
@@ -1226,6 +1846,7 @@ public partial class MainWindow : Window
         StopPreview();
         _coordinator?.Stop();
         SaveWorkspace();
+        _systemVolumeService?.Dispose();
         Application.Current.Exit();
     }
 }

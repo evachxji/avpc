@@ -16,7 +16,7 @@ public partial class App : Application
         try
         {
             var displays = DisplayService.GetDisplays();
-            var consoleDisplay = displays.Count > 1 ? displays[1] : displays[0];
+            var consoleDisplay = displays.FirstOrDefault(display => display.IsPrimary) ?? displays[0];
             var window = new MainWindow();
             DisplayService.PlaceConsole(window, consoleDisplay);
             window.Activate();

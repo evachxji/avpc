@@ -37,12 +37,12 @@ public sealed class PlaybackQueue
             return null;
         }
 
-        IsPlaying = false;
         IsPastEnd = false;
         if (CurrentIndex is null)
             CurrentIndex = 0;
         else if (CurrentIndex.Value >= _schemes.Count - 1)
         {
+            IsPlaying = false;
             CurrentIndex = null;
             IsPastEnd = true;
             return null;
@@ -50,6 +50,7 @@ public sealed class PlaybackQueue
         else
             CurrentIndex++;
 
+        IsPlaying = true;
         return CurrentScheme;
     }
 

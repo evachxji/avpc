@@ -16,7 +16,7 @@ public sealed class PlaybackQueueTests
     }
 
     [Fact]
-    public void Advance_VisitsSchemesWithoutPlaying_ThenEntersEndState()
+    public void Advance_EntersNextSchemePlaying_ThenEntersEndState()
     {
         var first = Scheme("第一套");
         var second = Scheme("第二套");
@@ -24,10 +24,10 @@ public sealed class PlaybackQueueTests
 
         Assert.Same(first, queue.Advance());
         Assert.Equal(0, queue.CurrentIndex);
-        Assert.False(queue.IsPlaying);
+        Assert.True(queue.IsPlaying);
         Assert.Same(second, queue.Advance());
         Assert.Equal(1, queue.CurrentIndex);
-        Assert.False(queue.IsPlaying);
+        Assert.True(queue.IsPlaying);
         Assert.Null(queue.Advance());
         Assert.False(queue.IsPlaying);
         Assert.True(queue.IsPastEnd);

@@ -43,7 +43,7 @@
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                 <TextBlock Text="展示屏:" VerticalAlignment="Center" />
                 <ComboBox x:Name="OutputDisplaySelector" MinWidth="195" SelectionChanged="OutputDisplayChanged" />
-                <Button Width="36" Height="34" Padding="0" Click="RefreshDisplaysClicked" ToolTipService.ToolTip="刷新屏幕列表" AutomationProperties.Name="刷新屏幕列表">
+                <Button x:Name="RefreshDisplayButton" Width="36" Height="34" Padding="0" Click="RefreshDisplaysClicked" ToolTipService.ToolTip="刷新屏幕列表" AutomationProperties.Name="刷新屏幕列表">
                     <SymbolIcon Symbol="Refresh" />
                 </Button>
             </StackPanel>
@@ -51,46 +51,70 @@
 
         <Grid Grid.Row="2" Margin="20,0,20,14" ColumnSpacing="14">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="270" />
+                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" MinWidth="390" />
                 <ColumnDefinition Width="400" />
             </Grid.ColumnDefinitions>
 
-            <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="10" Padding="14">
-                <Grid RowSpacing="12">
+            <Border x:Name="MediaSidebar" Width="270" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="10" Padding="14">
+                <Grid>
+                <Grid x:Name="MediaSidebarContent" RowSpacing="12">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
                     <Grid>
-                        <TextBlock Text="素材库" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" />
+                        <Button Padding="0" MinWidth="0" MinHeight="0" HorizontalAlignment="Left" VerticalAlignment="Center" Background="Transparent" BorderThickness="0"
+                                Click="ToggleMediaSidebarClicked" ToolTipService.ToolTip="收起素材库" AutomationProperties.Name="收起素材库">
+                            <TextBlock Text="素材库" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" />
+                        </Button>
                         <Button Content="＋ 导入素材" HorizontalAlignment="Right" Click="ImportClicked" />
                     </Grid>
                     <AutoSuggestBox Grid.Row="1" x:Name="SearchBox" PlaceholderText="搜索素材" QueryIcon="Find" TextChanged="SearchChanged" />
-                    <ListView x:Name="MediaList" Grid.Row="2" SelectionMode="Single" CanDragItems="True" DragItemsStarting="MediaDragStarting">
-                        <ListView.ItemTemplate>
-                            <DataTemplate>
-                                <Grid ColumnSpacing="10" MinHeight="54">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="62" />
-                                        <ColumnDefinition Width="*" />
-                                    </Grid.ColumnDefinitions>
-                                    <Border Width="62" Height="42" CornerRadius="5" Background="#FF292D36" VerticalAlignment="Center">
-                                        <Image Source="{Binding Thumbnail}" Stretch="UniformToFill" />
-                                    </Border>
-                                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                                        <TextBlock Text="{Binding Asset.DisplayName}" FontSize="12" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{Binding Asset.Path}" />
-                                        <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,5,0,0">
-                                            <Border Background="{Binding TagBackground}" CornerRadius="4" Padding="6,2">
-                                                <TextBlock Text="{Binding KindName}" FontSize="9" Foreground="{Binding TagForeground}" />
-                                            </Border>
-                                            <TextBlock Text="{Binding Details}" FontSize="10" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" />
+                    <Grid Grid.Row="2" x:Name="MediaListHost">
+                        <Grid.Resources>
+                            <MenuFlyout x:Name="MediaContextFlyout" Opening="MediaContextMenuOpening">
+                                <MenuFlyoutItem x:Name="OpenMediaFolderMenuItem" Text="在文件夹中打开" Click="OpenMediaFolderClicked" />
+                                <MenuFlyoutSeparator />
+                                <MenuFlyoutItem x:Name="DeleteMediaMenuItem" Text="删除素材" Click="DeleteSelectedMediaClicked" />
+                            </MenuFlyout>
+                        </Grid.Resources>
+                        <ListView x:Name="MediaList" SelectionMode="Extended" IsMultiSelectCheckBoxEnabled="False" CanDragItems="True" DragItemsStarting="MediaDragStarting"
+                                  RightTapped="MediaListRightTapped" PointerPressed="MediaListPointerPressed" PointerMoved="MediaListPointerMoved"
+                                  PointerReleased="MediaListPointerReleased" PointerCanceled="MediaListPointerCanceled" PointerCaptureLost="MediaListPointerCaptureLost">
+                            <ListView.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid ColumnSpacing="10" MinHeight="54">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="62" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <Border Width="62" Height="42" CornerRadius="5" Background="#FF292D36" VerticalAlignment="Center">
+                                            <Image Source="{Binding Thumbnail}" Stretch="UniformToFill" />
+                                        </Border>
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding Asset.DisplayName}" FontSize="12" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{Binding Asset.Path}" />
+                                            <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,5,0,0">
+                                                <Border Background="{Binding TagBackground}" CornerRadius="4" Padding="6,2">
+                                                    <TextBlock Text="{Binding KindName}" FontSize="9" Foreground="{Binding TagForeground}" />
+                                                </Border>
+                                                <TextBlock Text="{Binding Details}" FontSize="10" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" />
+                                            </StackPanel>
                                         </StackPanel>
-                                    </StackPanel>                                </Grid>
-                            </DataTemplate>
-                        </ListView.ItemTemplate>
-                    </ListView>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                        <Canvas x:Name="MediaSelectionCanvas" IsHitTestVisible="False">
+                            <Border x:Name="MediaSelectionBox" Background="#2262B899" BorderBrush="#CC62B899" BorderThickness="1" CornerRadius="3" Visibility="Collapsed" />
+                        </Canvas>
+                    </Grid>
+                </Grid>
+                <Button x:Name="MediaSidebarCollapsedContent" Visibility="Collapsed" Padding="0" MinWidth="0" MinHeight="0" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                        Background="Transparent" BorderThickness="0" Click="ToggleMediaSidebarClicked" ToolTipService.ToolTip="展开素材库" AutomationProperties.Name="展开素材库">
+                    <TextBlock Text="&gt;" FontSize="15" FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Button>
                 </Grid>
             </Border>
 
@@ -258,7 +282,31 @@
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
-                    <StackPanel Grid.Row="0" Spacing="14">
+                    <Border x:Name="OutputMonitorPanel" Grid.RowSpan="2" Visibility="Collapsed">
+                        <Grid RowSpacing="12">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <Grid ColumnSpacing="10">
+                                <StackPanel>
+                                    <TextBlock Text="PROGRAM OUTPUT" FontFamily="Consolas" FontSize="10" FontWeight="SemiBold" Foreground="#FF62B899" />
+                                    <TextBlock Text="展示屏浏览" FontSize="17" FontWeight="SemiBold" Foreground="#FFF0F2F3" Margin="0,3,0,0" />
+                                </StackPanel>
+                                <TextBlock Text="●  LIVE" HorizontalAlignment="Right" VerticalAlignment="Bottom" FontFamily="Consolas" FontSize="10" Foreground="#FF8CD4BA" />
+                            </Grid>
+                            <Border x:Name="OutputMonitorFrame" Grid.Row="1" CornerRadius="10" Background="Black" BorderBrush="#FF536D61" BorderThickness="1">
+                                <Grid>
+                                    <MediaPlayerElement x:Name="OutputMonitorView" Stretch="Uniform" AreTransportControlsEnabled="False" />
+                                    <Image x:Name="OutputMonitorImage" Stretch="Uniform" />
+                                    <Grid x:Name="OutputMonitorFadeOverlay" Background="Black" Opacity="1" IsHitTestVisible="False" />
+                                </Grid>
+                            </Border>
+                            <ProgressBar x:Name="OutputVideoProgress" Grid.Row="2" Height="5" Minimum="0" Maximum="1" Value="0" Visibility="Collapsed" IsHitTestVisible="False" Foreground="#FF62B899" AutomationProperties.Name="当前视频播放进度" />
+                        </Grid>
+                    </Border>
+                    <StackPanel x:Name="SchemePreviewContent" Grid.Row="0" Spacing="14">
                         <Grid ColumnSpacing="10">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto" />
@@ -291,13 +339,13 @@
                             <Button Width="34" Height="34" Padding="0" CornerRadius="17" Background="#FF2B7B5E" Foreground="White" BorderThickness="0" Click="PreviewClicked" ToolTipService.ToolTip="播放/暂停" AutomationProperties.Name="播放或暂停预览">
                                 <SymbolIcon x:Name="PreviewButtonIcon" Symbol="Play" />
                             </Button>
-                            <Slider x:Name="PreviewProgress" Grid.Column="1" MinWidth="0" VerticalAlignment="Center" Minimum="0" Maximum="0" Foreground="#FF62B899" />
+                            <Slider x:Name="PreviewProgress" Grid.Column="1" MinWidth="0" VerticalAlignment="Center" Minimum="0" Maximum="0" StepFrequency="0.05" Foreground="#FF62B899" />
                             <TextBlock x:Name="PreviewTimeText" Grid.Column="2" Text="00:00 / 00:00" FontFamily="Consolas" FontSize="11" Foreground="#FFA1ABB2" VerticalAlignment="Center" />
                             <FontIcon Grid.Column="3" Glyph="&#xE767;" FontSize="15" Foreground="#FFA1ABB2" VerticalAlignment="Center" ToolTipService.ToolTip="音量" />
                         </Grid>
                     </StackPanel>
 
-                    <ScrollViewer Grid.Row="1" Margin="0,14,0,0" VerticalScrollBarVisibility="Auto">
+                    <ScrollViewer x:Name="SchemeEditorScroll" Grid.Row="1" Margin="0,14,0,0" VerticalScrollBarVisibility="Auto">
                         <StackPanel Spacing="14">
                         <Border BorderBrush="#FF343B43" BorderThickness="0,1,0,0" Padding="0,15,0,0">
                             <StackPanel Spacing="10">
@@ -344,6 +392,26 @@
                 </Grid>
             </Border>
             <Border Grid.Column="2" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="10" Padding="14">
+                <Border.Resources>
+                    <MenuFlyout x:Name="SchemeContextFlyout">
+                        <MenuFlyoutItem Text="编辑名称" Click="EditSchemeNameMenuClicked" />
+                    </MenuFlyout>
+                    <Style x:Key="SchemeItemStyle" TargetType="ListViewItem">
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                        <Setter Property="VerticalContentAlignment" Value="Stretch" />
+                        <Setter Property="Padding" Value="0" />
+                        <Setter Property="Margin" Value="0" />
+                        <Setter Property="Background" Value="Transparent" />
+                        <Setter Property="UseSystemFocusVisuals" Value="False" />
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="ListViewItem">
+                                    <ContentPresenter Content="{TemplateBinding Content}" HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}" />
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                    </Style>
+                </Border.Resources>
                 <Grid RowSpacing="12">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
@@ -354,26 +422,37 @@
                         <TextBlock x:Name="SchemeCountText" Text="播放方案 · 0 套" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" />
                         <TextBlock Text="拖拽 ⋮⋮ 排序" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Right" />
                     </Grid>
-                    <ListView x:Name="SchemeList" Grid.Row="1" SelectionMode="Single" CanReorderItems="True" CanDragItems="True" AllowDrop="True" SelectionChanged="SchemeSelectionChanged" DragItemsCompleted="SchemesReordered" DragOver="SchemeDragOver" Drop="SchemeDrop">
+                    <ListView x:Name="SchemeList" Grid.Row="1" SelectionMode="Single" ItemContainerStyle="{StaticResource SchemeItemStyle}" CanReorderItems="True" CanDragItems="True" AllowDrop="True" SelectionChanged="SchemeSelectionChanged" DragItemsCompleted="SchemesReordered" DragOver="SchemeDragOver" Drop="SchemeDrop" RightTapped="SchemeListRightTapped">
                         <ListView.ItemTemplate>
                             <DataTemplate>
-                                <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="12" Background="#08FFFFFF" Margin="0,0,0,8" AllowDrop="True" DragOver="SchemeDragOver" Drop="SchemeDrop">
-                                    <Grid ColumnSpacing="12">
+                                <Grid>
+                                    <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="12" Background="#08FFFFFF" Margin="0,0,0,8" AllowDrop="True" DragOver="SchemeDragOver" Drop="SchemeDrop">
+                                        <Grid ColumnSpacing="12">
                                         <Grid.ColumnDefinitions><ColumnDefinition Width="88" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                                         <Border Width="88" Height="88" CornerRadius="7" Background="#FF101318" VerticalAlignment="Top" AllowDrop="True" DragOver="SchemeDragOver" Drop="SchemeDrop">
                                             <Image Source="{Binding Thumbnail}" Stretch="UniformToFill" />
                                         </Border>
                                         <StackPanel Grid.Column="1" Spacing="5">
                                             <Grid>
-                                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="13" Margin="0,0,106,0" Visibility="{Binding NameVisibility}" DoubleTapped="SchemeNameDoubleTapped" />
+                                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="12" TextWrapping="Wrap" Margin="0,0,106,0" Visibility="{Binding NameVisibility}" DoubleTapped="SchemeNameDoubleTapped" />
                                                 <TextBox Text="{Binding EditingName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Visibility="{Binding EditorVisibility}" MinHeight="30" Padding="6,2" Margin="0,0,106,0" LostFocus="SchemeNameEditorLostFocus" KeyDown="SchemeNameEditorKeyDown" />
-                                                <TextBlock Text="⋮⋮" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,72,0" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
-                                                <StackPanel HorizontalAlignment="Right" VerticalAlignment="Top" Orientation="Horizontal" Spacing="2">
-                                                    <Button Width="30" Height="30" Padding="0" HorizontalAlignment="Right" VerticalAlignment="Top" Background="Transparent" BorderThickness="0" ToolTipService.ToolTip="删除此方案" AutomationProperties.Name="删除方案" Click="DeleteSchemeCardClicked">
+                                                <Grid HorizontalAlignment="Right" VerticalAlignment="Top">
+                                                    <Grid.RowDefinitions>
+                                                        <RowDefinition Height="30" />
+                                                        <RowDefinition Height="Auto" />
+                                                    </Grid.RowDefinitions>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto" />
+                                                        <ColumnDefinition Width="30" />
+                                                        <ColumnDefinition Width="30" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Text="⋮⋮" VerticalAlignment="Center" Margin="0,0,2,0" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                                                    <Button Grid.Column="1" Width="30" Height="30" Padding="0" Background="Transparent" BorderThickness="0" ToolTipService.ToolTip="删除此方案" AutomationProperties.Name="删除方案" Click="DeleteSchemeCardClicked">
                                                         <FontIcon Glyph="&#xE74D;" FontSize="14" />
                                                     </Button>
-                                                    <Button Content="▶" Width="30" Height="30" Padding="0" FontSize="12" HorizontalAlignment="Right" VerticalAlignment="Top" Background="Transparent" BorderThickness="0" ToolTipService.ToolTip="播放此方案" Click="PlaySchemeCardClicked" />
-                                                </StackPanel>
+                                                    <Button Grid.Column="2" Content="▶" Width="30" Height="30" Padding="0" FontSize="12" Background="Transparent" BorderThickness="0" ToolTipService.ToolTip="播放此方案" Click="PlaySchemeCardClicked" />
+                                                    <FontIcon Grid.Row="1" Grid.Column="2" Glyph="&#xE8EE;" FontSize="12" HorizontalAlignment="Center" Foreground="#FF62B899" Visibility="{Binding LoopVisibility}" ToolTipService.ToolTip="循环播放" AutomationProperties.Name="循环播放" />
+                                                </Grid>
                                             </Grid>
                                             <TextBlock Text="{Binding VisualName}" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" />
                                             <Border Background="#66000000" CornerRadius="5" Padding="8,4" Margin="0,2,0,0">
@@ -393,8 +472,11 @@
                                                 </ScrollViewer>
                                             </Border>
                                         </StackPanel>
-                                    </Grid>
-                                </Border>                            </DataTemplate>
+                                        </Grid>
+                                    </Border>
+                                    <Border BorderBrush="#FF62B899" BorderThickness="2" CornerRadius="8" Margin="0,0,0,8" IsHitTestVisible="False" Visibility="{Binding HighlightVisibility}" />
+                                </Grid>
+                            </DataTemplate>
                         </ListView.ItemTemplate>
                     </ListView>
                     <Button Grid.Row="2" Content="＋ 新建播放方案" HorizontalAlignment="Stretch" Click="AddSchemeClicked" />
@@ -427,7 +509,12 @@
                     <ComboBoxItem Content="×10" />
                     <ComboBoxItem Content="×20" />
                 </ComboBox>
-                <Slider x:Name="PreviewVolume" Grid.Column="2" Width="88" VerticalAlignment="Center" Minimum="0" Maximum="1" Value="0.8" StepFrequency="0.05" Foreground="#FF62B899" ToolTipService.ToolTip="全局音量" />
+                <StackPanel Grid.Column="2" Width="128" VerticalAlignment="Center">
+                    <TextBlock Text="系统音量" FontSize="9" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <Slider x:Name="SystemVolumeSlider" MinHeight="0" Height="26" Margin="0,-3,0,0" Minimum="0" Maximum="1" Value="0.8" StepFrequency="0.01" Foreground="#FF62B899" ToolTipService.ToolTip="系统音量" />
+                    <TextBlock Text="播放音量" FontSize="9" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Margin="0,1,0,0" />
+                    <Slider x:Name="PreviewVolume" MinHeight="0" Height="26" Margin="0,-3,0,0" Minimum="0" Maximum="1" Value="0.8" StepFrequency="0.05" Foreground="#FF62B899" ToolTipService.ToolTip="播放音量" />
+                </StackPanel>
                 <Button Grid.Column="3" Content="开启展示" Click="OpenOutputClicked" />
                 <Button Grid.Column="4" Content="结束展示" Click="EndOutputClicked" />
                 <Button Grid.Column="5" Content="上一套" Click="PreviousOutputClicked" />

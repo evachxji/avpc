@@ -1,3 +1,4 @@
+using AVPC.Services;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media.Animation;
@@ -6,7 +7,7 @@ using Windows.Media.Playback;
 
 namespace AVPC;
 
-public partial class PlaybackWindow : Window
+public partial class PlaybackWindow : Window, IPlaybackSurface
 {
     private Storyboard? _fadeStoryboard;
 

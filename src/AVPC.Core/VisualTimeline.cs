@@ -5,7 +5,10 @@ public sealed record VisualTimelineLocation(
     MediaAsset Asset,
     TimeSpan ItemStart,
     TimeSpan ItemEnd,
-    TimeSpan ItemPosition);
+    TimeSpan ItemPosition)
+{
+    public bool CrossesVisualBoundary(int currentIndex) => Index != currentIndex;
+}
 
 public sealed class VisualTimeline
 {

@@ -11,16 +11,12 @@ if errorlevel 1 (
 )
 
 set "APP_EXE=%CD%\src\AVPC\bin\Debug\net8.0-windows10.0.19041.0\win-x64\AVPC.exe"
-if not exist "%APP_EXE%" (
-    echo [1/2] Building AVPC for the first time...
-    dotnet build "src\AVPC\AVPC.csproj" --nologo
-    if errorlevel 1 (
-        echo [AVPC] Build failed. See the errors above.
-        pause
-        exit /b 1
-    )
-) else (
-    echo [1/2] Existing build found. Skipping compilation.
+echo [1/2] Building AVPC...
+dotnet build "src\AVPC\AVPC.csproj" --nologo
+if errorlevel 1 (
+    echo [AVPC] Build failed. See the errors above.
+    pause
+    exit /b 1
 )
 
 echo [2/2] Starting AVPC. This window will close when ready...

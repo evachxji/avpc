@@ -54,6 +54,19 @@ public sealed class PlaybackSchemeTests
     }
 
     [Fact]
+    public void VolumeSettings_ClampToSupportedRanges()
+    {
+        var scheme = new PlaybackScheme
+        {
+            PlaybackVolume = 1.5,
+            SystemVolume = -0.2
+        };
+
+        Assert.Equal(1, scheme.PlaybackVolume);
+        Assert.Equal(0, scheme.SystemVolume);
+    }
+
+    [Fact]
     public void VisualQueue_RemovesOnlySelectedAsset()
     {
         var scheme = new PlaybackScheme();
@@ -64,6 +77,22 @@ public sealed class PlaybackSchemeTests
 
         Assert.Equal(Image.Path, Assert.Single(scheme.Visuals).Path);
         Assert.Equal("video.mp4", Video.Path);
+    }
+
+    [Fact]
+    public void RemoveMedia_RemovesAssetFromVisualAndAudioQueues()
+    {
+        var audio = new MediaAsset("audio.mp3", MediaKind.Audio);
+        var scheme = new PlaybackScheme();
+        scheme.AppendVisual(Video);
+        scheme.AppendVisual(Image);
+        scheme.AssignMedia(audio);
+
+        scheme.RemoveMedia(Video);
+        scheme.RemoveMedia(audio);
+
+        Assert.Equal(Image.Path, Assert.Single(scheme.Visuals).Path);
+        Assert.Empty(scheme.Audios);
     }
 
     [Fact]

@@ -12,6 +12,8 @@ public enum VideoEndBehavior
 public sealed class PlaybackScheme
 {
     private bool _hasLegacyImages;
+    private double? _playbackVolume;
+    private double? _systemVolume;
 
     public string Name { get; set; } = string.Empty;
     public List<MediaAsset> Visuals { get; } = [];
@@ -19,6 +21,16 @@ public sealed class PlaybackScheme
     public bool IsLooping { get; set; }
     public int ImageDurationSeconds { get; set; } = 5;
     public VideoEndBehavior EndBehavior { get; set; }
+    public double? PlaybackVolume
+    {
+        get => _playbackVolume;
+        set => _playbackVolume = value is null ? null : Math.Clamp(value.Value, 0, 1);
+    }
+    public double? SystemVolume
+    {
+        get => _systemVolume;
+        set => _systemVolume = value is null ? null : Math.Clamp(value.Value, 0, 1);
+    }
     [JsonIgnore]
     public bool HasIndependentAudio => Audios.Count > 0;
 
@@ -50,6 +62,12 @@ public sealed class PlaybackScheme
 
     public void RemoveAudio(MediaAsset asset) =>
         Audios.RemoveAll(audio => SamePath(audio, asset));
+
+    public void RemoveMedia(MediaAsset asset)
+    {
+        RemoveVisual(asset);
+        RemoveAudio(asset);
+    }
 
     public void MoveVisual(int oldIndex, int newIndex)
     {
